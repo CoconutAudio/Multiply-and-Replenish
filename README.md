@@ -21,7 +21,8 @@ It builds as **two apps**. They share an editor and differ in what sings:
 
 It hears the melody, cuts it into notes, and re-sings the recording from an edited copy of that
 melody. The words, the delivery, the breath and the timbre all come from the recording; only the
-tune is yours to change.
+tune is yours to change. The melody is heard from the channels summed, since there is only one of
+it, but each channel is rendered on its own, so a stereo take comes back stereo.
 
 ```
 recording
@@ -178,7 +179,13 @@ second to come back.
 
 ## Known limitations
 
-- **Mono.** A stereo file is mixed down on load and exported as mono. Vocal takes generally are.
+- **Stereo width that lives in phase does not survive.** Channels are read and rendered one by
+  one, so a stereo file stays stereo and a panned vocal keeps its balance to within a twentieth of
+  a decibel. But a mel spectrogram holds no phase, so width that comes from a delay or a chorus
+  between the channels collapses towards the middle: a four millisecond offset measured six times
+  narrower coming out. Correct the dry vocal and add the width afterwards. Two channels that arrive
+  identical are read and rendered once, and come back bit-identical, so a mono take in a stereo
+  file stays exactly centred and costs nothing extra.
 - **No time editing.** Notes can be retuned, split, joined and forgotten, but not moved or
   stretched in time; the timing you sang is the timing you get.
 - **No formant control.** The mel engine holds the formants where they were sung, which is right

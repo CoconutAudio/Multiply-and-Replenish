@@ -45,8 +45,7 @@ public:
 
     [[nodiscard]] juce::String getName() const override { return "PC-NSF-HiFiGAN"; }
 
-    bool prepare (const float* samples,
-                  int numSamples,
+    bool prepare (const juce::AudioBuffer<float>& recording,
                   double sampleRate,
                   const PitchTrack& melody,
                   const ProgressCallback& onProgress,
@@ -55,10 +54,13 @@ public:
 
     [[nodiscard]] bool isPrepared() const noexcept override { return numMelFrames > 0; }
 
-    [[nodiscard]] std::vector<float> render (const float* melodyHz,
-                                             int firstFrame,
-                                             int numFrames,
-                                             juce::String& error) const override;
+    bool render (const float* melodyHz,
+                 int firstFrame,
+                 int numFrames,
+                 juce::AudioBuffer<float>& destination,
+                 juce::String& error) const override;
+
+    [[nodiscard]] int getNumChannels() const noexcept override { return numSourceChannels; }
 
     [[nodiscard]] int getDependencyFrames() const noexcept override;
 
@@ -74,6 +76,13 @@ private:
                                                      int firstMelFrame,
                                                      int numSpanMelFrames) const;
 
+    /** @brief Renders one channel's mel through the vocoder and resamples it back. */
+    [[nodiscard]] std::vector<float> renderChannel (int channel,
+                                                    const std::vector<float>& pitchSpan,
+                                                    int firstMelFrame,
+                                                    int numSpanMelFrames,
+                                                    juce::String& error) const;
+
     Configuration config;
 
     OnnxSession network;
@@ -83,8 +92,10 @@ private:
     std::string pitchInputName;
     std::string outputName;
 
-    std::vector<float> mel;
+    std::vector<std::vector<float>> mel;
     int numMelFrames { 0 };
+
+    int numSourceChannels { 1 };
 
     double sourceSampleRate { 44100.0 };
     int numSourceSamples { 0 };

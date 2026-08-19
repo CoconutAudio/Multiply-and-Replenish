@@ -106,6 +106,7 @@ private:
 
     EngineOptions options;
 
+    juce::AudioBuffer<float> source;
     std::vector<float> mono;
     double sampleRate { 44100.0 };
 

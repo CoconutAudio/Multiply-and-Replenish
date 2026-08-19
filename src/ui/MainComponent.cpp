@@ -327,10 +327,11 @@ bool MainComponent::writeExport (const juce::File& file)
         return false;
 
     const auto numSamples = document.getRecording().getNumSamples();
+    const auto numChannels = std::max (1, document.getRecording().getNumChannels());
 
-    juce::AudioBuffer<float> rendered { 1, numSamples };
+    juce::AudioBuffer<float> rendered { numChannels, numSamples };
     rendered.clear();
-    scheduler.read (rendered.getWritePointer (0), 0, numSamples);
+    scheduler.read (rendered, 0, 0, numSamples);
 
     file.deleteFile();
 
@@ -340,7 +341,7 @@ bool MainComponent::writeExport (const juce::File& file)
     auto writer = wav.createWriterFor (stream,
                                        juce::AudioFormatWriterOptions {}
                                            .withSampleRate (document.getSampleRate())
-                                           .withNumChannels (1)
+                                           .withNumChannels (static_cast<unsigned int> (numChannels))
                                            .withBitsPerSample (24));
 
     if (writer == nullptr)

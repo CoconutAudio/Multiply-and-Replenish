@@ -66,12 +66,20 @@ public:
     void setPriorityFrame (int frameIndex);
 
     /** @brief Copies rendered audio out, for playback or for export.
-        @param destination  Where to write; untouched wherever nothing is rendered yet.
-        @param firstSample  First sample wanted, counted from the start of the recording.
-        @param numSamples   How many samples to write.
+
+        Channels are written one for one, and a destination with more channels than the render has
+        is filled by repeating the last one, so a mono render reaches both ears.
+
+        @param destination       Where to write; untouched wherever nothing is rendered yet.
+        @param destinationStart  First sample of @p destination to write.
+        @param firstSample       First sample wanted, counted from the start of the recording.
+        @param numSamples        How many samples to write.
         @return The number of samples actually written, which is zero when nothing is ready.
     */
-    int read (float* destination, int firstSample, int numSamples) const;
+    int read (juce::AudioBuffer<float>& destination,
+              int destinationStart,
+              int firstSample,
+              int numSamples) const;
 
     /** @brief Whether every sample of a stretch has been rendered. */
     [[nodiscard]] bool isReady (int firstSample, int numSamples) const;
@@ -115,7 +123,7 @@ private:
     /** @brief Whether a span and its context were left exactly as sung. */
     [[nodiscard]] bool isUnedited (int spanIndex) const;
 
-    /** @brief Copies the recording into a span, crossfading into whatever was rendered beside it. */
+    /** @brief Copies the recording into a span, channel for channel. */
     void passThrough (int firstSample, int numSamples);
     void rescheduleSpans();
 
@@ -149,6 +157,7 @@ private:
     std::atomic<bool> keepUnedited { true };
 
     juce::AudioBuffer<float> rendered;
+    juce::AudioBuffer<float> spanScratch;
     std::vector<std::unique_ptr<Span>> spans;
 
     double sampleRate { 44100.0 };

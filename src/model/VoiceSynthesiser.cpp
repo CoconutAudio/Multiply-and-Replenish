@@ -142,44 +142,20 @@ namespace
     }
 }
 
-bool VoiceSynthesiser::prepare (const float* samples,
-                                int numSamples,
-                                double sampleRate,
-                                const PitchTrack& melody,
-                                const ProgressCallback& onProgress,
-                                const std::atomic<bool>& shouldAbort,
-                                juce::String& error)
+bool VoiceSynthesiser::encodeChannel (const float* samples,
+                                      int numSamples,
+                                      const PitchTrack& melody,
+                                      std::vector<float>& destination,
+                                      const ProgressCallback& onProgress,
+                                      float progressFrom,
+                                      float progressTo,
+                                      const std::atomic<bool>& shouldAbort,
+                                      juce::String& error)
 {
-    conditioning.clear();
-    numFrames = 0;
-
-    if (samples == nullptr || numSamples <= 0 || melody.getNumFrames() <= 0)
-    {
-        error = "there is nothing to prepare";
-        return false;
-    }
-
-    sourceSampleRate = sampleRate;
-    numSourceSamples = numSamples;
-    frameRate = melody.frameRate;
-
-    if (frameRate != manifest.getPitchFrameRate())
-    {
-        error = "the melody is framed at " + juce::String (frameRate) + " Hz, the voice expects "
-              + juce::String (manifest.getPitchFrameRate()) + " Hz";
-        return false;
-    }
-
-    const auto report = [&onProgress] (float fraction)
-    {
-        if (onProgress)
-            onProgress (std::clamp (fraction, 0.0f, 1.0f));
-    };
-
     const auto analysisSampleRate = manifest.contentSampleRate;
     const auto hopSize = manifest.melConfiguration.hopSizeInSamples;
 
-    const SincResampler toAnalysisRate { sampleRate, static_cast<double> (analysisSampleRate) };
+    const SincResampler toAnalysisRate { sourceSampleRate, static_cast<double> (analysisSampleRate) };
     auto analysis = toAnalysisRate.process (samples, numSamples);
 
     if (analysis.empty())
@@ -192,18 +168,6 @@ bool VoiceSynthesiser::prepare (const float* samples,
 
     const auto numAnalysisSamples = static_cast<int> (analysis.size());
 
-    numFrames = std::min (melody.getNumFrames(), numAnalysisSamples / hopSize);
-
-    if (numFrames <= 0)
-    {
-        error = "the recording is shorter than one analysis frame";
-        return false;
-    }
-
-    sourceLevel = measureLevel (samples, numSamples, sampleRate, frameRate, numFrames);
-
-    report (0.05f);
-
     const auto contextPadding = static_cast<int> (manifest.contextPaddingSeconds
                                                   * static_cast<double> (analysisSampleRate));
     contextFrames = contextPadding / hopSize;
@@ -215,7 +179,7 @@ bool VoiceSynthesiser::prepare (const float* samples,
     const auto paddingFeatureFrames = contextPadding / samplesPerFeature;
     const auto chunkFeatureFrames = static_cast<int> (contentChunkSeconds * manifest.contentFrameRate);
 
-    conditioning.assign (static_cast<std::size_t> (numFrames) * static_cast<std::size_t> (featureDim), 0.0f);
+    destination.assign (static_cast<std::size_t> (numFrames) * static_cast<std::size_t> (featureDim), 0.0f);
 
     const auto* retriever = voiceModel.getRetriever();
 
@@ -275,35 +239,129 @@ bool VoiceSynthesiser::prepare (const float* samples,
                 if (frameIndex >= numFrames)
                     break;
 
-                auto* destination = conditioning.data() + static_cast<std::size_t> (frameIndex)
-                                                              * static_cast<std::size_t> (featureDim);
+                auto* target = destination.data() + static_cast<std::size_t> (frameIndex)
+                                                        * static_cast<std::size_t> (featureDim);
 
                 if (sung == nullptr || melody.isVoiced (frameIndex))
                 {
-                    std::copy (retrieved, retrieved + featureDim, destination);
+                    std::copy (retrieved, retrieved + featureDim, target);
                 }
                 else
                 {
                     const auto protection = settings.consonantProtection;
 
                     for (int dimension = 0; dimension < featureDim; ++dimension)
-                        destination[dimension] = protection * retrieved[dimension]
-                                               + (1.0f - protection) * sung[dimension];
+                        target[dimension] = protection * retrieved[dimension]
+                                          + (1.0f - protection) * sung[dimension];
                 }
             }
         }
 
-        report (0.05f + 0.95f * static_cast<float> (lastFeature) / static_cast<float> (numFeatureFrames));
+        if (onProgress)
+            onProgress (progressFrom + (progressTo - progressFrom)
+                                           * static_cast<float> (lastFeature)
+                                           / static_cast<float> (numFeatureFrames));
     }
 
-    report (1.0f);
     return true;
 }
 
-void VoiceSynthesiser::followRecording (std::vector<float>& span, int firstFrame, int numSpanFrames) const
+bool VoiceSynthesiser::prepare (const juce::AudioBuffer<float>& recording,
+                                double newSampleRate,
+                                const PitchTrack& melody,
+                                const ProgressCallback& onProgress,
+                                const std::atomic<bool>& shouldAbort,
+                                juce::String& error)
+{
+    conditioning.clear();
+    sourceLevel.clear();
+    numFrames = 0;
+
+    const auto numSamples = recording.getNumSamples();
+
+    if (numSamples <= 0 || recording.getNumChannels() <= 0 || melody.getNumFrames() <= 0)
+    {
+        error = "there is nothing to prepare";
+        return false;
+    }
+
+    sourceSampleRate = newSampleRate;
+    numSourceSamples = numSamples;
+    numSourceChannels = recording.getNumChannels();
+    frameRate = melody.frameRate;
+
+    if (frameRate != manifest.getPitchFrameRate())
+    {
+        error = "the melody is framed at " + juce::String (frameRate) + " Hz, the voice expects "
+              + juce::String (manifest.getPitchFrameRate()) + " Hz";
+        return false;
+    }
+
+    const auto hopSize = manifest.melConfiguration.hopSizeInSamples;
+    const auto numAnalysisSamples = static_cast<int> (std::llround (static_cast<double> (numSamples)
+                                                                   * manifest.contentSampleRate
+                                                                   / sourceSampleRate));
+
+    numFrames = std::min (melody.getNumFrames(), numAnalysisSamples / hopSize);
+
+    if (numFrames <= 0)
+    {
+        error = "the recording is shorter than one analysis frame";
+        return false;
+    }
+
+    // Two channels holding the same signal are one channel's work, and one vocoder pass.
+    auto numAnalysed = 1;
+
+    for (int channel = 1; channel < numSourceChannels; ++channel)
+    {
+        const auto* first = recording.getReadPointer (0);
+        const auto* other = recording.getReadPointer (channel);
+
+        if (! std::equal (first, first + numSamples, other))
+        {
+            numAnalysed = numSourceChannels;
+            break;
+        }
+    }
+
+    conditioning.resize (static_cast<std::size_t> (numAnalysed));
+    sourceLevel.resize (static_cast<std::size_t> (numAnalysed));
+
+    for (int channel = 0; channel < numAnalysed; ++channel)
+    {
+        const auto from = static_cast<float> (channel) / static_cast<float> (numAnalysed);
+        const auto to = static_cast<float> (channel + 1) / static_cast<float> (numAnalysed);
+
+        sourceLevel[static_cast<std::size_t> (channel)] =
+            measureLevel (recording.getReadPointer (channel), numSamples, sourceSampleRate,
+                          frameRate, numFrames);
+
+        if (! encodeChannel (recording.getReadPointer (channel), numSamples, melody,
+                             conditioning[static_cast<std::size_t> (channel)],
+                             onProgress, from, to, shouldAbort, error))
+        {
+            conditioning.clear();
+            return false;
+        }
+    }
+
+    if (onProgress)
+        onProgress (1.0f);
+
+    return true;
+}
+
+void VoiceSynthesiser::followRecording (std::vector<float>& span,
+                                        int channel,
+                                        int firstFrame,
+                                        int numSpanFrames) const
 {
     if (envelopeFollow <= 0.0f || sourceLevel.empty() || span.empty())
         return;
+
+    const auto& level = sourceLevel[static_cast<std::size_t> (std::min (channel,
+                                                                        static_cast<int> (sourceLevel.size()) - 1))];
 
     const auto samplesPerFrame = sourceSampleRate / static_cast<double> (frameRate);
 
@@ -311,7 +369,7 @@ void VoiceSynthesiser::followRecording (std::vector<float>& span, int firstFrame
 
     for (int spanFrame = 0; spanFrame < numSpanFrames; ++spanFrame)
     {
-        const auto frameIndex = std::min (firstFrame + spanFrame, static_cast<int> (sourceLevel.size()) - 1);
+        const auto frameIndex = std::min (firstFrame + spanFrame, static_cast<int> (level.size()) - 1);
 
         const auto first = static_cast<int> (static_cast<double> (spanFrame) * samplesPerFrame);
         const auto last = std::min (static_cast<int> (static_cast<double> (spanFrame + 1) * samplesPerFrame),
@@ -324,7 +382,7 @@ void VoiceSynthesiser::followRecording (std::vector<float>& span, int firstFrame
                           * static_cast<double> (span[static_cast<std::size_t> (sampleIndex)]);
 
         const auto rendered = std::sqrt (sumOfSquares / std::max (1, last - first));
-        const auto wanted = static_cast<double> (sourceLevel[static_cast<std::size_t> (frameIndex)]);
+        const auto wanted = static_cast<double> (level[static_cast<std::size_t> (frameIndex)]);
 
         const auto ratio = rendered > 1.0e-6 ? wanted / rendered : 1.0;
 
@@ -348,27 +406,12 @@ void VoiceSynthesiser::followRecording (std::vector<float>& span, int firstFrame
     }
 }
 
-std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
-                                             int firstFrame,
-                                             int numSpanFrames,
-                                             juce::String& error) const
+std::vector<float> VoiceSynthesiser::renderChannel (int channel,
+                                                    const float* melodyHz,
+                                                    int paddedFirst,
+                                                    int numPaddedFrames,
+                                                    juce::String& error) const
 {
-    if (! isPrepared() || melodyHz == nullptr || numSpanFrames <= 0)
-    {
-        error = "nothing to render";
-        return {};
-    }
-
-    const auto paddedFirst = std::max (firstFrame - contextFrames, 0);
-    const auto paddedLast = std::min (firstFrame + numSpanFrames + contextFrames, numFrames);
-    const auto numPaddedFrames = paddedLast - paddedFirst;
-
-    if (numPaddedFrames <= 0)
-    {
-        error = "the span lies outside the recording";
-        return {};
-    }
-
     const auto featureDim = manifest.featureDim;
     const auto latentDim = manifest.latentDim;
 
@@ -397,11 +440,12 @@ std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
     const std::int64_t speakerIdValue = manifest.speakerId;
 
     const auto& names = manifest.vocoderInputs;
+    const auto& features = conditioning[static_cast<std::size_t> (channel)];
 
     const std::vector<OnnxSession::TensorView> inputs {
         OnnxSession::TensorView::floats (names[0].c_str(),
-                                        conditioning.data() + static_cast<std::size_t> (paddedFirst)
-                                                                  * static_cast<std::size_t> (featureDim),
+                                        features.data() + static_cast<std::size_t> (paddedFirst)
+                                                              * static_cast<std::size_t> (featureDim),
                                         { 1, numPaddedFrames, featureDim }),
         OnnxSession::TensorView::integers (names[1].c_str(), &numFramesValue, { 1 }),
         OnnxSession::TensorView::integers (names[2].c_str(), coarsePitch.data(), { 1, numPaddedFrames }),
@@ -425,9 +469,32 @@ std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
     const auto* rendered = returned.front().GetTensorData<float>();
 
     const SincResampler toSourceRate { static_cast<double> (manifest.modelSampleRate), sourceSampleRate };
-    const auto atSourceRate = toSourceRate.isPassThrough()
-                            ? std::vector<float> (rendered, rendered + numRendered)
-                            : toSourceRate.process (rendered, numRendered);
+
+    return toSourceRate.isPassThrough() ? std::vector<float> (rendered, rendered + numRendered)
+                                        : toSourceRate.process (rendered, numRendered);
+}
+
+bool VoiceSynthesiser::render (const float* melodyHz,
+                               int firstFrame,
+                               int numSpanFrames,
+                               juce::AudioBuffer<float>& destination,
+                               juce::String& error) const
+{
+    if (! isPrepared() || melodyHz == nullptr || numSpanFrames <= 0)
+    {
+        error = "nothing to render";
+        return false;
+    }
+
+    const auto paddedFirst = std::max (firstFrame - contextFrames, 0);
+    const auto paddedLast = std::min (firstFrame + numSpanFrames + contextFrames, numFrames);
+    const auto numPaddedFrames = paddedLast - paddedFirst;
+
+    if (numPaddedFrames <= 0)
+    {
+        error = "the span lies outside the recording";
+        return false;
+    }
 
     const auto toSourceSample = [this] (int frameIndex)
     {
@@ -439,22 +506,45 @@ std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
     const auto numWanted = toSourceSample (firstFrame + numSpanFrames) - firstSourceSample;
     const auto offset = firstSourceSample - toSourceSample (paddedFirst);
 
-    std::vector<float> span (static_cast<std::size_t> (std::max (numWanted, 0)), 0.0f);
-
-    const auto numAvailable = std::min (numWanted, static_cast<int> (atSourceRate.size()) - offset);
-
-    if (numWanted <= 0 || offset < 0 || numAvailable <= 0)
+    if (numWanted <= 0 || offset < 0)
     {
-        error = "the vocoder returned less audio than the span covers";
-        return {};
+        error = "the span is empty";
+        return false;
     }
 
-    std::copy (atSourceRate.begin() + offset,
-               atSourceRate.begin() + offset + numAvailable,
-               span.begin());
+    destination.setSize (numSourceChannels, numWanted, false, false, true);
+    destination.clear();
 
-    followRecording (span, firstFrame, numSpanFrames);
+    for (int channel = 0; channel < numSourceChannels; ++channel)
+    {
+        const auto analysed = std::min (channel, static_cast<int> (conditioning.size()) - 1);
 
-    return span;
+        if (channel > 0 && analysed == std::min (channel - 1, static_cast<int> (conditioning.size()) - 1))
+        {
+            destination.copyFrom (channel, 0, destination, channel - 1, 0, numWanted);
+            continue;
+        }
+
+        auto atSourceRate = renderChannel (analysed, melodyHz, paddedFirst, numPaddedFrames, error);
+
+        const auto numAvailable = std::min (numWanted, static_cast<int> (atSourceRate.size()) - offset);
+
+        if (atSourceRate.empty() || numAvailable <= 0)
+        {
+            if (error.isEmpty())
+                error = "the vocoder returned less audio than the span covers";
+
+            return false;
+        }
+
+        std::vector<float> span (atSourceRate.begin() + offset,
+                                 atSourceRate.begin() + offset + numAvailable);
+
+        followRecording (span, analysed, firstFrame, numSpanFrames);
+
+        destination.copyFrom (channel, 0, span.data(), numAvailable);
+    }
+
+    return true;
 }
 }

@@ -83,12 +83,19 @@ void TransportPlayer::audioDeviceAboutToStart (juce::AudioIODevice* device)
 
     const auto blockSize = device != nullptr ? device->getCurrentBufferSizeSamples() : 1024;
     const auto ratio = sourceSampleRate / std::max (deviceSampleRate, 1.0);
+    const auto numChannels = device != nullptr
+                           ? std::max (1, device->getActiveOutputChannels().countNumberOfSetBits())
+                           : 2;
 
-    scratch.assign (static_cast<std::size_t> (static_cast<double> (blockSize) * ratio * scratchOversize)
-                        + scratchHeadroom,
-                    0.0f);
+    scratch.setSize (numChannels,
+                     static_cast<int> (static_cast<double> (blockSize) * ratio * scratchOversize)
+                         + scratchHeadroom);
+    scratch.clear();
 
-    interpolator.reset();
+    interpolators.clear();
+
+    for (int channel = 0; channel < numChannels; ++channel)
+        interpolators.push_back (std::make_unique<juce::LagrangeInterpolator>());
 }
 
 void TransportPlayer::audioDeviceStopped()
@@ -96,9 +103,9 @@ void TransportPlayer::audioDeviceStopped()
     playing.store (false, std::memory_order_release);
 }
 
-void TransportPlayer::readSource (float* destination, int firstSample, int numSamples)
+void TransportPlayer::readSource (int firstSample, int numSamples)
 {
-    std::fill (destination, destination + numSamples, 0.0f);
+    scratch.clear (0, numSamples);
 
     if (source == nullptr)
         return;
@@ -111,18 +118,13 @@ void TransportPlayer::readSource (float* destination, int firstSample, int numSa
     if (renderer != nullptr
         && monitoring.load (std::memory_order_acquire) == Monitor::corrected
         && renderer->isReady (firstSample, numAvailable)
-        && renderer->read (destination, firstSample, numAvailable) == numAvailable)
+        && renderer->read (scratch, 0, firstSample, numAvailable) == numAvailable)
         return;
 
-    const auto numChannels = source->getNumChannels();
-
-    for (int channel = 0; channel < numChannels; ++channel)
-    {
-        const auto* channelData = source->getReadPointer (channel, firstSample);
-
-        for (int sampleIndex = 0; sampleIndex < numAvailable; ++sampleIndex)
-            destination[sampleIndex] += channelData[sampleIndex] / static_cast<float> (numChannels);
-    }
+    for (int channel = 0; channel < scratch.getNumChannels(); ++channel)
+        scratch.copyFrom (channel, 0, *source,
+                          std::min (channel, source->getNumChannels() - 1),
+                          firstSample, numAvailable);
 }
 
 void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
@@ -144,22 +146,22 @@ void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
     if (const auto seek = seekRequest.exchange (-1, std::memory_order_acq_rel); seek >= 0)
     {
         readPosition = seek;
-        interpolator.reset();
+
+        for (auto& interpolator : interpolators)
+            interpolator->reset();
     }
 
     if (! playing.load (std::memory_order_acquire))
         return;
 
-    auto* left = numOutputChannels > 0 ? outputChannelData[0] : nullptr;
-
-    if (left == nullptr)
+    if (numOutputChannels <= 0 || outputChannelData[0] == nullptr)
         return;
 
     const auto ratio = sourceSampleRate / std::max (deviceSampleRate, 1.0);
     const auto numWanted = static_cast<int> (std::ceil (static_cast<double> (numSamples) * ratio))
                          + scratchHeadroom;
 
-    if (static_cast<int> (scratch.size()) < numWanted)
+    if (scratch.getNumSamples() < numWanted || interpolators.empty())
         return;
 
     if (looping.load (std::memory_order_acquire))
@@ -172,7 +174,9 @@ void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
         if (last > first && (readPosition < first || readPosition >= last))
         {
             readPosition = first;
-            interpolator.reset();
+
+            for (auto& interpolator : interpolators)
+                interpolator->reset();
         }
     }
 
@@ -182,13 +186,21 @@ void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
         return;
     }
 
-    readSource (scratch.data(), readPosition, numWanted);
+    readSource (readPosition, numWanted);
 
-    const auto numUsed = interpolator.process (ratio, scratch.data(), left, numSamples);
+    auto numUsed = 0;
 
-    for (int channel = 1; channel < numOutputChannels; ++channel)
-        if (outputChannelData[channel] != nullptr)
-            std::copy (left, left + numSamples, outputChannelData[channel]);
+    for (int channel = 0; channel < numOutputChannels; ++channel)
+    {
+        if (outputChannelData[channel] == nullptr)
+            continue;
+
+        const auto sourceChannel = std::min (channel, scratch.getNumChannels() - 1);
+
+        numUsed = interpolators[static_cast<std::size_t> (sourceChannel)]
+                      ->process (ratio, scratch.getReadPointer (sourceChannel),
+                                 outputChannelData[channel], numSamples);
+    }
 
     readPosition += numUsed;
 

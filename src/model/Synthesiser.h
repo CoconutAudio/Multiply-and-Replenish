@@ -2,6 +2,7 @@
 
 #include "model/PitchDetector.h"
 
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
 
 #include <atomic>
@@ -27,16 +28,19 @@ public:
     [[nodiscard]] virtual juce::String getName() const = 0;
 
     /** @brief Reads the recording, once.
-        @param samples      Mono source audio.
-        @param numSamples   Length of @p samples.
-        @param sampleRate   Rate @p samples arrived at, and the rate render() returns.
+
+        Channels are read and rendered one by one, so a stereo take stays stereo. Channels that
+        arrive identical are read once and rendered once, which keeps a mono take recorded to two
+        channels exactly centred and costs nothing extra.
+
+        @param recording    The source audio, however many channels it has.
+        @param sampleRate   Rate the recording arrived at, and the rate render() returns.
         @param melody       The melody as sung, which fixes the frame grid everything else uses.
         @param onProgress   Called with the fraction prepared, on the calling thread.
         @param shouldAbort  Polled between chunks.
         @param error        Set when preparation fails.
     */
-    virtual bool prepare (const float* samples,
-                          int numSamples,
+    virtual bool prepare (const juce::AudioBuffer<float>& recording,
                           double sampleRate,
                           const PitchTrack& melody,
                           const ProgressCallback& onProgress,
@@ -46,16 +50,22 @@ public:
     [[nodiscard]] virtual bool isPrepared() const noexcept = 0;
 
     /** @brief Renders one span of the edited melody.
-        @param melodyHz    The edited melody, one entry per frame of the whole recording.
-        @param firstFrame  First frame of the span.
-        @param numFrames   Length of the span, in frames.
-        @param error       Set when the render fails.
-        @return The span at the source sample rate, or empty on failure.
+        @param melodyHz     The edited melody, one entry per frame of the whole recording.
+        @param firstFrame   First frame of the span.
+        @param numFrames    Length of the span, in frames.
+        @param destination  Written with getNumChannels() channels at the source sample rate; it is
+                            resized to hold the span.
+        @param error        Set when the render fails.
+        @return True when the span was rendered.
     */
-    [[nodiscard]] virtual std::vector<float> render (const float* melodyHz,
-                                                     int firstFrame,
-                                                     int numFrames,
-                                                     juce::String& error) const = 0;
+    virtual bool render (const float* melodyHz,
+                         int firstFrame,
+                         int numFrames,
+                         juce::AudioBuffer<float>& destination,
+                         juce::String& error) const = 0;
+
+    /** @brief Channels the render comes back with, which is what the recording had. */
+    [[nodiscard]] virtual int getNumChannels() const noexcept = 0;
 
     /** @brief Frames either side of a span that its render depends on, which is how far an edit
                reaches into neighbouring spans.

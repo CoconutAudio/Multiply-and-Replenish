@@ -239,7 +239,7 @@ int main (int argc, char** argv)
     const auto preparedAt = juce::Time::getMillisecondCounterHiRes();
     const std::atomic<bool> keepGoing { false };
 
-    if (! synthesiser->prepare (mono.data(), numSamples, sampleRate, melody,
+    if (! synthesiser->prepare (source, sampleRate, melody,
                                 [] (float fraction) { std::cout << "\rprepare " << juce::roundToInt (100.0f * fraction) << "%   " << std::flush; },
                                 keepGoing, error))
     {
@@ -254,16 +254,16 @@ int main (int argc, char** argv)
     const auto numFrames = synthesiser->getNumFrames();
     const auto spanFrames = 200;
 
-    juce::AudioBuffer<float> rendered { 1, numSamples };
+    juce::AudioBuffer<float> rendered { synthesiser->getNumChannels(), numSamples };
     rendered.clear();
+
+    juce::AudioBuffer<float> spanBuffer;
 
     for (auto firstFrame = 0; firstFrame < numFrames; firstFrame += spanFrames)
     {
         const auto numSpanFrames = std::min (spanFrames, numFrames - firstFrame);
 
-        const auto span = synthesiser->render (edited.data(), firstFrame, numSpanFrames, error);
-
-        if (span.empty())
+        if (! synthesiser->render (edited.data(), firstFrame, numSpanFrames, spanBuffer, error))
         {
             report ("render: " + error);
             return 1;
@@ -272,10 +272,11 @@ int main (int argc, char** argv)
         const auto firstSample = static_cast<int> (std::llround (static_cast<double> (firstFrame)
                                                                  * sampleRate
                                                                  / synthesiser->getFrameRate()));
-        const auto numToCopy = std::min (static_cast<int> (span.size()), numSamples - firstSample);
+        const auto numToCopy = std::min (spanBuffer.getNumSamples(), numSamples - firstSample);
 
-        if (numToCopy > 0)
-            rendered.copyFrom (0, firstSample, span.data(), numToCopy);
+        for (int channel = 0; channel < rendered.getNumChannels() && numToCopy > 0; ++channel)
+            rendered.copyFrom (channel, firstSample, spanBuffer,
+                               std::min (channel, spanBuffer.getNumChannels() - 1), 0, numToCopy);
 
         std::cout << "\rrender " << juce::roundToInt (100.0 * (firstFrame + numSpanFrames) / numFrames)
                   << "%   " << std::flush;
@@ -293,7 +294,7 @@ int main (int argc, char** argv)
 
     auto writer = wav.createWriterFor (stream, juce::AudioFormatWriterOptions {}
                                                    .withSampleRate (sampleRate)
-                                                   .withNumChannels (1)
+                                                   .withNumChannels (static_cast<unsigned int> (rendered.getNumChannels()))
                                                    .withBitsPerSample (24));
 
     if (writer == nullptr)

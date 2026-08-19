@@ -33,8 +33,7 @@ public:
 
     [[nodiscard]] juce::String getName() const override;
 
-    bool prepare (const float* samples,
-                  int numSamples,
+    bool prepare (const juce::AudioBuffer<float>& recording,
                   double sampleRate,
                   const PitchTrack& melody,
                   const ProgressCallback& onProgress,
@@ -43,10 +42,13 @@ public:
 
     [[nodiscard]] bool isPrepared() const noexcept override { return numFrames > 0 && ! conditioning.empty(); }
 
-    [[nodiscard]] std::vector<float> render (const float* melodyHz,
-                                             int firstFrame,
-                                             int numFrames,
-                                             juce::String& error) const override;
+    bool render (const float* melodyHz,
+                 int firstFrame,
+                 int numFrames,
+                 juce::AudioBuffer<float>& destination,
+                 juce::String& error) const override;
+
+    [[nodiscard]] int getNumChannels() const noexcept override { return numSourceChannels; }
 
     [[nodiscard]] int getDependencyFrames() const noexcept override { return contextFrames; }
 
@@ -65,8 +67,26 @@ public:
     void setEnvelopeFollow (float ratio) noexcept { envelopeFollow = ratio; }
 
 private:
+    /** @brief Reads one channel of the recording into content features. */
+    bool encodeChannel (const float* samples,
+                        int numSamples,
+                        const PitchTrack& melody,
+                        std::vector<float>& destination,
+                        const ProgressCallback& onProgress,
+                        float progressFrom,
+                        float progressTo,
+                        const std::atomic<bool>& shouldAbort,
+                        juce::String& error);
+
+    /** @brief Renders one channel's content features through the vocoder and resamples them back. */
+    [[nodiscard]] std::vector<float> renderChannel (int channel,
+                                                    const float* melodyHz,
+                                                    int paddedFirst,
+                                                    int numPaddedFrames,
+                                                    juce::String& error) const;
+
     /** @brief Holds a rendered span to the loudness of the recording underneath it. */
-    void followRecording (std::vector<float>& span, int firstFrame, int numSpanFrames) const;
+    void followRecording (std::vector<float>& span, int channel, int firstFrame, int numSpanFrames) const;
 
     [[nodiscard]] std::vector<float> encodeContent (const float* samples,
                                                     int numSamples,
@@ -76,11 +96,12 @@ private:
     const ModelManifest& manifest;
     ContentSettings settings;
 
-    std::vector<float> conditioning;
-    std::vector<float> sourceLevel;
+    std::vector<std::vector<float>> conditioning;
+    std::vector<std::vector<float>> sourceLevel;
 
     double sourceSampleRate { 44100.0 };
     int numSourceSamples { 0 };
+    int numSourceChannels { 1 };
     int frameRate { 100 };
     int numFrames { 0 };
     int contextFrames { 50 };

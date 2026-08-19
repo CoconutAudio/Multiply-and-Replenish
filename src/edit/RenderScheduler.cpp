@@ -62,7 +62,7 @@ void RenderScheduler::setSynthesiser (std::shared_ptr<Synthesiser> newSynthesise
     numSourceSamples = numSamples;
     frameRate = synthesiser->getFrameRate();
 
-    rendered.setSize (1, numSamples);
+    rendered.setSize (std::max (1, synthesiser->getNumChannels()), numSamples);
     rendered.clear();
 
     planSpans();
@@ -314,17 +314,11 @@ bool RenderScheduler::isUnedited (int spanIndex) const
 
 void RenderScheduler::passThrough (int firstSample, int numSamples)
 {
-    auto* destination = rendered.getWritePointer (0, firstSample);
-    const auto numChannels = recording->getNumChannels();
-
-    std::fill (destination, destination + numSamples, 0.0f);
-
-    for (int channel = 0; channel < numChannels; ++channel)
+    for (int channel = 0; channel < rendered.getNumChannels(); ++channel)
     {
-        const auto* source = recording->getReadPointer (channel, firstSample);
+        const auto sourceChannel = std::min (channel, recording->getNumChannels() - 1);
 
-        for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
-            destination[sampleIndex] += source[sampleIndex] / static_cast<float> (numChannels);
+        rendered.copyFrom (channel, firstSample, *recording, sourceChannel, firstSample, numSamples);
     }
 }
 
@@ -343,14 +337,11 @@ bool RenderScheduler::renderSpan (int spanIndex)
 
     const auto untouched = isUnedited (spanIndex);
 
-    std::vector<float> audio;
-
     if (! untouched)
     {
         juce::String renderError;
-        audio = synthesiser->render (renderMelody.data(), firstFrame, numFrames, renderError);
 
-        if (audio.empty())
+        if (! synthesiser->render (renderMelody.data(), firstFrame, numFrames, spanScratch, renderError))
         {
             const juce::ScopedLock lock { errorLock };
             error = renderError;
@@ -359,7 +350,7 @@ bool RenderScheduler::renderSpan (int spanIndex)
     }
 
     const auto numSamples = std::min (untouched ? getFirstSample (firstFrame + numFrames) - firstSample
-                                                : static_cast<int> (audio.size()),
+                                                : spanScratch.getNumSamples(),
                                       numSourceSamples - firstSample);
 
     if (numSamples <= 0)
@@ -368,21 +359,30 @@ bool RenderScheduler::renderSpan (int spanIndex)
     span.sequence.fetch_add (1, std::memory_order_acq_rel);
 
     if (untouched)
+    {
         passThrough (firstSample, numSamples);
+    }
     else
-        rendered.copyFrom (0, firstSample, audio.data(), numSamples);
+    {
+        for (int channel = 0; channel < rendered.getNumChannels(); ++channel)
+            rendered.copyFrom (channel, firstSample, spanScratch,
+                               std::min (channel, spanScratch.getNumChannels() - 1), 0, numSamples);
+    }
 
     if (! renderGain.empty())
     {
-        auto* samples = rendered.getWritePointer (0, firstSample);
-
-        for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
+        for (int channel = 0; channel < rendered.getNumChannels(); ++channel)
         {
-            const auto frameIndex = std::min (static_cast<int> (renderGain.size()) - 1,
-                                              firstFrame + sampleIndex * frameRate
-                                                  / static_cast<int> (sampleRate));
+            auto* samples = rendered.getWritePointer (channel, firstSample);
 
-            samples[sampleIndex] *= renderGain[static_cast<std::size_t> (frameIndex)];
+            for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
+            {
+                const auto frameIndex = std::min (static_cast<int> (renderGain.size()) - 1,
+                                                  firstFrame + sampleIndex * frameRate
+                                                      / static_cast<int> (sampleRate));
+
+                samples[sampleIndex] *= renderGain[static_cast<std::size_t> (frameIndex)];
+            }
         }
     }
 
@@ -451,9 +451,12 @@ void RenderScheduler::handleAsyncUpdate()
     listeners.call ([] (Listener& listener) { listener.renderChanged(); });
 }
 
-int RenderScheduler::read (float* destination, int firstSample, int numSamples) const
+int RenderScheduler::read (juce::AudioBuffer<float>& destination,
+                           int destinationStart,
+                           int firstSample,
+                           int numSamples) const
 {
-    if (destination == nullptr || rendered.getNumSamples() == 0 || numSamples <= 0)
+    if (rendered.getNumSamples() == 0 || numSamples <= 0 || destination.getNumChannels() <= 0)
         return 0;
 
     auto numWritten = 0;
@@ -473,7 +476,9 @@ int RenderScheduler::read (float* destination, int firstSample, int numSamples) 
         const auto& span = *spans[static_cast<std::size_t> (spanIndex)];
 
         const auto spanEnd = std::min (getFirstSample (span.lastFrame), rendered.getNumSamples());
-        const auto numFromSpan = std::min (numSamples - numWritten, spanEnd - sampleIndex);
+        const auto numFromSpan = std::min ({ numSamples - numWritten,
+                                             spanEnd - sampleIndex,
+                                             destination.getNumSamples() - destinationStart - numWritten });
 
         if (numFromSpan <= 0)
             break;
@@ -483,9 +488,10 @@ int RenderScheduler::read (float* destination, int firstSample, int numSamples) 
         if ((before & 1U) != 0 || span.renderedFrom.load (std::memory_order_acquire) == 0)
             break;
 
-        std::copy (rendered.getReadPointer (0, sampleIndex),
-                   rendered.getReadPointer (0, sampleIndex) + numFromSpan,
-                   destination + numWritten);
+        for (int channel = 0; channel < destination.getNumChannels(); ++channel)
+            destination.copyFrom (channel, destinationStart + numWritten, rendered,
+                                  std::min (channel, rendered.getNumChannels() - 1),
+                                  sampleIndex, numFromSpan);
 
         if (span.sequence.load (std::memory_order_acquire) != before)
             break;

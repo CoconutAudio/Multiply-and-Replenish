@@ -78,6 +78,9 @@ void Pipeline::start (const juce::AudioBuffer<float>& recording,
     const auto numSamples = recording.getNumSamples();
     const auto numChannels = std::max (1, recording.getNumChannels());
 
+    source.makeCopyOf (recording);
+
+    // The melody is one melody however many channels carry it, so the detector hears the sum.
     mono.assign (static_cast<std::size_t> (numSamples), 0.0f);
 
     for (int channel = 0; channel < recording.getNumChannels(); ++channel)
@@ -266,8 +269,7 @@ void Pipeline::run()
         engine = std::move (melEngine);
     }
 
-    const auto prepared = engine->prepare (mono.data(),
-                                           static_cast<int> (mono.size()),
+    const auto prepared = engine->prepare (source,
                                            sampleRate,
                                            melody,
                                            [this] (float fraction)

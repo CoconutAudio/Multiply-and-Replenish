@@ -68,8 +68,7 @@ int MelSynthesiser::getDependencyFrames() const noexcept
                                             * static_cast<double> (frameRate) / melFrameRate));
 }
 
-bool MelSynthesiser::prepare (const float* samples,
-                              int numSamples,
+bool MelSynthesiser::prepare (const juce::AudioBuffer<float>& recording,
                               double sampleRate,
                               const PitchTrack& melody,
                               const ProgressCallback& onProgress,
@@ -79,7 +78,9 @@ bool MelSynthesiser::prepare (const float* samples,
     mel.clear();
     numMelFrames = 0;
 
-    if (samples == nullptr || numSamples <= 0)
+    const auto numSamples = recording.getNumSamples();
+
+    if (numSamples <= 0 || recording.getNumChannels() <= 0)
     {
         error = "there is nothing to prepare";
         return false;
@@ -87,33 +88,57 @@ bool MelSynthesiser::prepare (const float* samples,
 
     sourceSampleRate = sampleRate;
     numSourceSamples = numSamples;
+    numSourceChannels = recording.getNumChannels();
     frameRate = melody.frameRate > 0 ? melody.frameRate : 100;
     numFrames = melody.getNumFrames();
 
-    if (onProgress)
-        onProgress (0.1f);
+    // Two channels holding the same signal are one channel's work, and rendering them from one mel
+    // keeps a mono take recorded to two channels exactly where it was.
+    auto numAnalysed = 1;
 
-    const SincResampler toVocoderRate { sampleRate, static_cast<double> (config.sampleRate) };
-    const auto resampled = toVocoderRate.process (samples, numSamples);
-
-    if (resampled.empty())
+    for (int channel = 1; channel < numSourceChannels; ++channel)
     {
-        error = "resampling to the vocoder's rate produced nothing";
-        return false;
+        const auto* first = recording.getReadPointer (0);
+        const auto* other = recording.getReadPointer (channel);
+
+        if (! std::equal (first, first + numSamples, other))
+        {
+            numAnalysed = numSourceChannels;
+            break;
+        }
     }
 
-    if (shouldAbort.load())
-        return false;
+    const SincResampler toVocoderRate { sampleRate, static_cast<double> (config.sampleRate) };
 
-    if (onProgress)
-        onProgress (0.4f);
+    mel.resize (static_cast<std::size_t> (numAnalysed));
 
-    numMelFrames = melSpectrogram->process (resampled.data(), static_cast<int> (resampled.size()), mel);
-
-    if (numMelFrames <= 0)
+    for (int channel = 0; channel < numAnalysed; ++channel)
     {
-        error = "the recording is shorter than one vocoder frame";
-        return false;
+        if (shouldAbort.load())
+            return false;
+
+        if (onProgress)
+            onProgress (static_cast<float> (channel) / static_cast<float> (numAnalysed));
+
+        const auto resampled = toVocoderRate.process (recording.getReadPointer (channel), numSamples);
+
+        if (resampled.empty())
+        {
+            error = "resampling to the vocoder's rate produced nothing";
+            return false;
+        }
+
+        const auto numChannelFrames = melSpectrogram->process (resampled.data(),
+                                                              static_cast<int> (resampled.size()),
+                                                              mel[static_cast<std::size_t> (channel)]);
+
+        if (numChannelFrames <= 0)
+        {
+            error = "the recording is shorter than one vocoder frame";
+            return false;
+        }
+
+        numMelFrames = channel == 0 ? numChannelFrames : std::min (numMelFrames, numChannelFrames);
     }
 
     if (onProgress)
@@ -166,61 +191,26 @@ std::vector<float> MelSynthesiser::resampleMelody (const float* melodyHz,
     return resampled;
 }
 
-std::vector<float> MelSynthesiser::render (const float* melodyHz,
-                                           int firstFrame,
-                                           int numSpanFrames,
-                                           juce::String& error) const
+std::vector<float> MelSynthesiser::renderChannel (int channel,
+                                                  const std::vector<float>& pitchSpan,
+                                                  int firstMelFrame,
+                                                  int numSpanMelFrames,
+                                                  juce::String& error) const
 {
-    if (! isPrepared() || melodyHz == nullptr || numSpanFrames <= 0)
-    {
-        error = "nothing to render";
-        return {};
-    }
-
-    const auto melFrameRate = static_cast<double> (config.sampleRate)
-                            / static_cast<double> (config.hopSizeInSamples);
-
-    const auto firstSecond = static_cast<double> (firstFrame) / static_cast<double> (frameRate);
-    const auto lastSecond = static_cast<double> (firstFrame + numSpanFrames) / static_cast<double> (frameRate);
-
-    const auto firstSourceSample = static_cast<int> (std::llround (firstSecond * sourceSampleRate));
-    const auto lastSourceSample = static_cast<int> (std::llround (lastSecond * sourceSampleRate));
-    const auto numWanted = std::max (0, lastSourceSample - firstSourceSample);
-
-    if (numWanted <= 0)
-    {
-        error = "the span is empty";
-        return {};
-    }
-
-    const auto firstMelFrame = std::max (0, static_cast<int> (std::floor (firstSecond * melFrameRate))
-                                                - config.contextFrames);
-    const auto lastMelFrame = std::min (numMelFrames,
-                                        static_cast<int> (std::ceil (lastSecond * melFrameRate))
-                                            + config.contextFrames);
-    const auto numSpanMelFrames = lastMelFrame - firstMelFrame;
-
-    if (numSpanMelFrames <= 0)
-    {
-        error = "the span lies outside the recording";
-        return {};
-    }
-
     const auto numMelBins = config.numMelBins;
+    const auto& source = mel[static_cast<std::size_t> (channel)];
 
     std::vector<float> melSpan (static_cast<std::size_t> (numMelBins) * static_cast<std::size_t> (numSpanMelFrames));
 
     for (int melIndex = 0; melIndex < numMelBins; ++melIndex)
     {
-        const auto* source = mel.data() + static_cast<std::size_t> (melIndex) * static_cast<std::size_t> (numMelFrames)
-                           + static_cast<std::size_t> (firstMelFrame);
+        const auto* row = source.data() + static_cast<std::size_t> (melIndex) * static_cast<std::size_t> (numMelFrames)
+                        + static_cast<std::size_t> (firstMelFrame);
         auto* destination = melSpan.data() + static_cast<std::size_t> (melIndex) * static_cast<std::size_t> (numSpanMelFrames);
 
         for (int frameIndex = 0; frameIndex < numSpanMelFrames; ++frameIndex)
-            destination[frameIndex] = std::clamp (source[frameIndex], config.melFloor, config.melCeiling);
+            destination[frameIndex] = std::clamp (row[frameIndex], config.melFloor, config.melCeiling);
     }
-
-    const auto pitchSpan = resampleMelody (melodyHz, firstMelFrame, numSpanMelFrames);
 
     const std::vector<OnnxSession::TensorView> inputs {
         OnnxSession::TensorView::floats (melInputName.c_str(), melSpan.data(),
@@ -244,9 +234,53 @@ std::vector<float> MelSynthesiser::render (const float* melodyHz,
     const auto* rendered = returned.front().GetTensorData<float>();
 
     const SincResampler toSourceRate { static_cast<double> (config.sampleRate), sourceSampleRate };
-    const auto atSourceRate = toSourceRate.isPassThrough()
-                            ? std::vector<float> (rendered, rendered + numRendered)
-                            : toSourceRate.process (rendered, numRendered);
+
+    return toSourceRate.isPassThrough() ? std::vector<float> (rendered, rendered + numRendered)
+                                        : toSourceRate.process (rendered, numRendered);
+}
+
+bool MelSynthesiser::render (const float* melodyHz,
+                             int firstFrame,
+                             int numSpanFrames,
+                             juce::AudioBuffer<float>& destination,
+                             juce::String& error) const
+{
+    if (! isPrepared() || melodyHz == nullptr || numSpanFrames <= 0)
+    {
+        error = "nothing to render";
+        return false;
+    }
+
+    const auto melFrameRate = static_cast<double> (config.sampleRate)
+                            / static_cast<double> (config.hopSizeInSamples);
+
+    const auto firstSecond = static_cast<double> (firstFrame) / static_cast<double> (frameRate);
+    const auto lastSecond = static_cast<double> (firstFrame + numSpanFrames) / static_cast<double> (frameRate);
+
+    const auto firstSourceSample = static_cast<int> (std::llround (firstSecond * sourceSampleRate));
+    const auto lastSourceSample = static_cast<int> (std::llround (lastSecond * sourceSampleRate));
+    const auto numWanted = std::max (0, lastSourceSample - firstSourceSample);
+
+    if (numWanted <= 0)
+    {
+        error = "the span is empty";
+        return false;
+    }
+
+    const auto firstMelFrame = std::max (0, static_cast<int> (std::floor (firstSecond * melFrameRate))
+                                                - config.contextFrames);
+    const auto lastMelFrame = std::min (numMelFrames,
+                                        static_cast<int> (std::ceil (lastSecond * melFrameRate))
+                                            + config.contextFrames);
+    const auto numSpanMelFrames = lastMelFrame - firstMelFrame;
+
+    if (numSpanMelFrames <= 0)
+    {
+        error = "the span lies outside the recording";
+        return false;
+    }
+
+    const auto pitchSpan = resampleMelody (melodyHz, firstMelFrame, numSpanMelFrames);
 
     const auto spanFirstSourceSample = static_cast<int> (std::llround (
         static_cast<double> (firstMelFrame) * static_cast<double> (config.hopSizeInSamples)
@@ -254,20 +288,34 @@ std::vector<float> MelSynthesiser::render (const float* melodyHz,
 
     const auto offset = firstSourceSample - spanFirstSourceSample;
 
-    std::vector<float> span (static_cast<std::size_t> (numWanted), 0.0f);
+    destination.setSize (numSourceChannels, numWanted, false, false, true);
+    destination.clear();
 
-    const auto numAvailable = std::min (numWanted, static_cast<int> (atSourceRate.size()) - offset);
-
-    if (offset < 0 || numAvailable <= 0)
+    for (int channel = 0; channel < numSourceChannels; ++channel)
     {
-        error = "the vocoder returned less audio than the span covers";
-        return {};
+        const auto analysed = std::min (channel, static_cast<int> (mel.size()) - 1);
+
+        if (channel > 0 && analysed == std::min (channel - 1, static_cast<int> (mel.size()) - 1))
+        {
+            destination.copyFrom (channel, 0, destination, channel - 1, 0, numWanted);
+            continue;
+        }
+
+        const auto atSourceRate = renderChannel (analysed, pitchSpan, firstMelFrame, numSpanMelFrames, error);
+
+        const auto numAvailable = std::min (numWanted, static_cast<int> (atSourceRate.size()) - offset);
+
+        if (atSourceRate.empty() || offset < 0 || numAvailable <= 0)
+        {
+            if (error.isEmpty())
+                error = "the vocoder returned less audio than the span covers";
+
+            return false;
+        }
+
+        destination.copyFrom (channel, 0, atSourceRate.data() + offset, numAvailable);
     }
 
-    std::copy (atSourceRate.begin() + offset,
-               atSourceRate.begin() + offset + numAvailable,
-               span.begin());
-
-    return span;
+    return true;
 }
 }

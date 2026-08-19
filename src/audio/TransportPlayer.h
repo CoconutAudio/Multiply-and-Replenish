@@ -68,10 +68,10 @@ private:
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
 
-    /** @brief Fills @p destination from the recording, corrected wherever the whole stretch is
+    /** @brief Fills the scratch buffer from the recording, corrected wherever the whole stretch is
                rendered, so that a span finishing mid-buffer cannot splice one into the other.
     */
-    void readSource (float* destination, int firstSample, int numSamples);
+    void readSource (int firstSample, int numSamples);
 
     juce::CriticalSection sourceLock;
     const juce::AudioBuffer<float>* source { nullptr };
@@ -80,8 +80,8 @@ private:
 
     juce::AudioDeviceManager& devices;
 
-    juce::LagrangeInterpolator interpolator;
-    std::vector<float> scratch;
+    std::vector<std::unique_ptr<juce::LagrangeInterpolator>> interpolators;
+    juce::AudioBuffer<float> scratch;
 
     /** @brief The next sample to read, owned by the audio thread. */
     int readPosition { 0 };
