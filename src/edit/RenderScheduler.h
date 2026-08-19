@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Keeps the rendered audio in step with the melody, a span at a time, off the message thread.
 

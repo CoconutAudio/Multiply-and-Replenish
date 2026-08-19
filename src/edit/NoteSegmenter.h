@@ -6,7 +6,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief How readily the melody is cut into notes. */
 struct SegmenterSettings

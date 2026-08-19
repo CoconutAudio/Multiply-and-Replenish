@@ -1,6 +1,6 @@
 #include "ui/PanelLookAndFeel.h"
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {
@@ -169,4 +169,4 @@ void PanelLookAndFeel::drawLinearSlider (juce::Graphics& graphics,
     graphics.fillRect (thumb);
 }
 
-} // namespace rvctuner
+} // namespace tuner

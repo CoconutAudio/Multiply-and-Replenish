@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief One ONNX Runtime session, loaded from a file and run on borrowed buffers. */
 class OnnxSession

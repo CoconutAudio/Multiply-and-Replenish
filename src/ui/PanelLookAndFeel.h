@@ -2,7 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The plug-in's visual house style: one palette, one type scale, flat surfaces. */
 class PanelLookAndFeel final : public juce::LookAndFeel_V4
@@ -113,4 +113,4 @@ public:
                            juce::Slider& slider) override;
 };
 
-} // namespace rvctuner
+} // namespace tuner

@@ -3,8 +3,8 @@
 #include "edit/NoteSegmenter.h"
 #include "model/FcpeDetector.h"
 #include "model/MelSynthesiser.h"
+#include "model/ModelLibrary.h"
 #include "model/RmvpeDetector.h"
-#include "model/VoiceSynthesiser.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -12,7 +12,7 @@
 #include <cmath>
 #include <iostream>
 
-using namespace rvctuner;
+using namespace tuner;
 
 namespace
 {
@@ -20,10 +20,8 @@ struct Arguments
 {
     juce::File input;
     juce::File output;
-    juce::File modelDirectory { RVCTUNER_DEVELOPMENT_MODEL_PATH };
+    juce::File modelDirectory { TUNER_DEVELOPMENT_MODEL_PATH };
     juce::String detector { "rmvpe" };
-    juce::String engine { "mel" };
-    juce::String voice { "female1" };
     juce::String key { "C" };
     juce::String scale { "chromatic" };
     double shiftSemitones { 0.0 };
@@ -50,10 +48,6 @@ std::optional<Arguments> parse (int argc, char** argv)
 
         if (argument == "--detector")
             arguments.detector = next().toLowerCase();
-        else if (argument == "--engine")
-            arguments.engine = next().toLowerCase();
-        else if (argument == "--voice")
-            arguments.voice = next();
         else if (argument == "--models")
             arguments.modelDirectory = juce::File::getCurrentWorkingDirectory().getChildFile (next());
         else if (argument == "--shift")
@@ -96,8 +90,7 @@ int main (int argc, char** argv)
 
     if (! arguments.has_value())
     {
-        report ("usage: rvctuner-tune <input.wav> <output.wav> [--detector rmvpe|fcpe]");
-        report ("                     [--engine mel|voice] [--voice <name>] [--models <dir>]");
+        report ("usage: tuner-tune <input.wav> <output.wav> [--detector fcpe|rmvpe] [--models <dir>]");
         report ("                     [--key C] [--scale chromatic|major|minor|...]");
         report ("                     [--correction 0..1] [--vibrato 0..2] [--drift 0..2]");
         report ("                     [--transition <ms>] [--shift <semitones>]");
@@ -136,19 +129,12 @@ int main (int argc, char** argv)
 
     const auto start = juce::Time::getMillisecondCounterHiRes();
 
-    if (arguments->detector == "fcpe")
-    {
+    if (arguments->detector == "rmvpe")
+        detector = RmvpeDetector::load (arguments->modelDirectory.getChildFile ("rmvpe/rmvpe.onnx"),
+                                        {}, {}, 0, error);
+    else
         detector = FcpeDetector::load (arguments->modelDirectory.getChildFile ("pitchnet/fcpe.onnx"),
                                        {}, 0, error);
-    }
-    else
-    {
-        RmvpeDetector::Configuration configuration;
-        detector = RmvpeDetector::load (arguments->modelDirectory
-                                            .getChildFile (arguments->voice)
-                                            .getChildFile ("pitch_estimator.onnx"),
-                                        configuration, {}, 0, error);
-    }
 
     if (detector == nullptr)
     {
@@ -208,32 +194,14 @@ int main (int argc, char** argv)
     const auto corrected = correctMelody (melody, notes, {}, arguments->correction);
     const auto& edited = corrected.fundamentalFrequencyHz;
 
-    std::unique_ptr<Synthesiser> synthesiser;
-    std::unique_ptr<VoiceModel> voiceModel;
-
-    if (arguments->engine == "voice")
-    {
-        voiceModel = VoiceModel::load (arguments->modelDirectory.getChildFile (arguments->voice), 0, error);
-
-        if (voiceModel == nullptr)
-        {
-            report ("voice model: " + error);
-            return 1;
-        }
-
-        synthesiser = std::make_unique<VoiceSynthesiser> (*voiceModel, ContentSettings {});
-    }
-    else
-    {
-        synthesiser = MelSynthesiser::load (arguments->modelDirectory
+    auto synthesiser = MelSynthesiser::load (arguments->modelDirectory
                                                 .getChildFile ("pitchnet/pc_nsf_hifigan.onnx"),
                                             {}, 0, error);
 
-        if (synthesiser == nullptr)
-        {
-            report ("vocoder: " + error);
-            return 1;
-        }
+    if (synthesiser == nullptr)
+    {
+        report ("vocoder: " + error);
+        return 1;
     }
 
     const auto preparedAt = juce::Time::getMillisecondCounterHiRes();

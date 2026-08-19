@@ -4,7 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The strip along the bottom: playing, looping, what is being heard, and how much of the
            correction has been rendered.

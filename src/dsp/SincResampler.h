@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Kaiser-windowed sinc resampler whose cutoff tracks the rate ratio, so downsampling cannot alias. */
 class SincResampler

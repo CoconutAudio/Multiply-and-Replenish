@@ -1,6 +1,6 @@
 #include "edit/MidiExport.h"
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {

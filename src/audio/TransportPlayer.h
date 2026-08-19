@@ -6,7 +6,7 @@
 
 #include <atomic>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Plays the recording, or the correction of it, and reports where it has got to.
 

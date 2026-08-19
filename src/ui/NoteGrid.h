@@ -4,7 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The note grid: a row per semitone, the melody drawn across it, and the notes on top.
 

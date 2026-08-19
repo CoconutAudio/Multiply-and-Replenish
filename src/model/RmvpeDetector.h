@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief RMVPE: a deep U-net that reads a log-mel spectrogram and reports pitch salience. */
 class RmvpeDetector final : public PitchDetector

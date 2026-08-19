@@ -9,7 +9,7 @@
 #include <functional>
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief One way of turning an edited melody back into singing.
 

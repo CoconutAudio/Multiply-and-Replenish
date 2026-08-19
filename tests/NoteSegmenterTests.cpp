@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-using namespace rvctuner;
+using namespace tuner;
 
 namespace
 {

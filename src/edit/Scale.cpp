@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {

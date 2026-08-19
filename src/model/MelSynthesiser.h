@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief PC-NSF-HiFiGAN: a vocoder that reads a mel spectrogram and a fundamental separately.
 

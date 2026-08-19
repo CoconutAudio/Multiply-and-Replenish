@@ -6,7 +6,7 @@
 #include <numbers>
 #include <vector>
 
-using namespace rvctuner;
+using namespace tuner;
 
 namespace
 {

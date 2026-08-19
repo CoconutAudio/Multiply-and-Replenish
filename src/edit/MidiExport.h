@@ -6,7 +6,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Writes the notes as a MIDI melody, at the pitches the correction put them on.
     @param file       Where to write; overwritten if it exists.

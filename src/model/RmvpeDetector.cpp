@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rvctuner
+namespace tuner
 {
 RmvpeDetector::RmvpeDetector (const Configuration& configuration, std::vector<float> filterBank)
     : config (configuration)

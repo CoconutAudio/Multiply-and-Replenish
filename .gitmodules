@@ -4,6 +4,6 @@
 [submodule "libs/googletest"]
 	path = libs/googletest
 	url = https://github.com/google/googletest.git
-[submodule "libs/hnswlib"]
-	path = libs/hnswlib
-	url = https://github.com/nmslib/hnswlib.git
+[submodule "libs/ARA_SDK"]
+	path = libs/ARA_SDK
+	url = https://github.com/Celemony/ARA_SDK.git

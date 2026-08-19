@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief FCPE: a transformer that reads a log-mel spectrogram and reports a cent distribution.
 

@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief One sung note: the frames it covers, the pitch it was sung at, and where it should land.
 

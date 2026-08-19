@@ -2,7 +2,7 @@
 
 #include <gtest/gtest.h>
 
-using namespace rvctuner;
+using namespace tuner;
 
 TEST (Smoothing, MedianRemovesAnIsolatedSpike)
 {

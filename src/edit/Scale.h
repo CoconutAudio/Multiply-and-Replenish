@@ -5,7 +5,7 @@
 #include <array>
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The set of pitches a correction is allowed to land on. */
 class Scale

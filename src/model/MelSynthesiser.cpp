@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rvctuner
+namespace tuner
 {
 MelSynthesiser::MelSynthesiser (const Configuration& configuration)
     : config (configuration)

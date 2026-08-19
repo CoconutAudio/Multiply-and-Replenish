@@ -6,7 +6,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The bar across the top: what to open, which tool is in hand, which key, how much
            correction, and which algorithms do the work.
@@ -15,7 +15,7 @@ class ToolBar final : public juce::Component,
                       private EditDocument::Listener
 {
 public:
-    ToolBar (EditDocument& document, Pipeline& pipeline);
+    explicit ToolBar (EditDocument& document);
     ~ToolBar() override;
 
     static constexpr int preferredHeight = 84;
@@ -33,6 +33,11 @@ public:
     /** @brief Greys out what cannot be done until a recording is analysed. */
     void setBusy (bool isBusy);
 
+    /** @brief Hides what a host already does: opening files, exporting, and choosing the detector,
+               which in a session belongs to the region rather than to the editor.
+    */
+    void setHostMode (bool isHosted);
+
     void paint (juce::Graphics& graphics) override;
     void resized() override;
 
@@ -43,7 +48,6 @@ private:
     void applyCorrection();
 
     EditDocument& document;
-    Pipeline& pipeline;
 
     juce::TextButton openButton { "OPEN" };
     juce::TextButton exportButton { "EXPORT" };
@@ -59,7 +63,6 @@ private:
     juce::ComboBox keyBox;
     juce::ComboBox scaleBox;
     juce::ComboBox detectorBox;
-    juce::ComboBox voiceBox;
 
     juce::Slider correctionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     juce::Slider transitionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };

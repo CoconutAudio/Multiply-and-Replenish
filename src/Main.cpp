@@ -1,13 +1,12 @@
-#include "Product.h"
 #include "ui/MainComponent.h"
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The application: one window, one recording at a time. */
 class Application final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return Product::name; }
+    const juce::String getApplicationName() override { return "Tuner"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
@@ -39,7 +38,7 @@ private:
     {
     public:
         Window()
-            : juce::DocumentWindow (Product::name,
+            : juce::DocumentWindow ("Tuner",
                                     PanelLookAndFeel::Palette::ground,
                                     juce::DocumentWindow::allButtons)
         {
@@ -69,4 +68,4 @@ private:
 };
 }
 
-START_JUCE_APPLICATION (rvctuner::Application)
+START_JUCE_APPLICATION (tuner::Application)

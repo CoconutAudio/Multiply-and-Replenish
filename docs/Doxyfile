@@ -1,5 +1,5 @@
-PROJECT_NAME           = RVCTuner
-PROJECT_NUMBER         = 0.1.0
+PROJECT_NAME           = Tuner
+PROJECT_NUMBER         = 0.2.0
 PROJECT_BRIEF          = "Vocal pitch editor"
 
 INPUT                  = mainpage.dox ../src

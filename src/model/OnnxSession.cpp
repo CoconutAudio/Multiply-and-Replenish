@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace rvctuner
+namespace tuner
 {
 OnnxSession::~OnnxSession() = default;
 OnnxSession::OnnxSession (OnnxSession&&) noexcept = default;
@@ -10,7 +10,7 @@ OnnxSession& OnnxSession::operator= (OnnxSession&&) noexcept = default;
 
 Ort::Env& OnnxSession::getSharedEnvironment()
 {
-    static Ort::Env environment { ORT_LOGGING_LEVEL_WARNING, "RVCTuner" };
+    static Ort::Env environment { ORT_LOGGING_LEVEL_WARNING, "Tuner" };
     return environment;
 }
 

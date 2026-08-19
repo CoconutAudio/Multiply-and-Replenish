@@ -5,7 +5,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The settings that shape every note at once. */
 struct CorrectionSettings

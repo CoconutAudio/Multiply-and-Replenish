@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {
@@ -22,7 +22,7 @@ namespace
 }
 
 RenderScheduler::RenderScheduler()
-    : juce::Thread ("RVCTuner render")
+    : juce::Thread ("Tuner render")
 {
 }
 

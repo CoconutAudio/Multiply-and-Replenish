@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Converts a frequency to RVC's mel scale; zero and negative frequencies mean unvoiced.
     @param frequencyHz  Frequency in hertz.

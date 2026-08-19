@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief One second-order section, in the b0 b1 b2 a0 a1 a2 order SciPy writes. */
 struct BiquadCoefficients

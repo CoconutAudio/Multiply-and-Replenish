@@ -1,5 +1,4 @@
-add_executable(rvctuner_tests
-    BinaryMatrixTests.cpp
+add_executable(tuner_tests
     EditDocumentTests.cpp
     MelFilterBankTests.cpp
     MelSpectrogramTests.cpp
@@ -10,17 +9,17 @@ add_executable(rvctuner_tests
     SmoothingTests.cpp
     ZeroPhaseFilterTests.cpp)
 
-target_link_libraries(rvctuner_tests
+target_link_libraries(tuner_tests
     PRIVATE
-        rvctuner_engine
-        rvctuner_warnings
+        tuner_engine
+        tuner_warnings
         GTest::gtest_main)
 
-target_compile_definitions(rvctuner_tests PRIVATE
-    RVCTUNER_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-    RVCTUNER_MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../res/models")
+target_compile_definitions(tuner_tests PRIVATE
+    TUNER_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    TUNER_MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../res/models")
 
-rvctuner_apply_strict_warnings(
+tuner_apply_strict_warnings(
     MelFilterBankTests.cpp
     PitchConversionsTests.cpp
     ScaleTests.cpp
@@ -28,4 +27,4 @@ rvctuner_apply_strict_warnings(
     SmoothingTests.cpp)
 
 include(GoogleTest)
-gtest_discover_tests(rvctuner_tests)
+gtest_discover_tests(tuner_tests)

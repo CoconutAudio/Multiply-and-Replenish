@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rvctuner
+namespace tuner
 {
 FcpeDetector::FcpeDetector (const Configuration& configuration)
     : config (configuration)

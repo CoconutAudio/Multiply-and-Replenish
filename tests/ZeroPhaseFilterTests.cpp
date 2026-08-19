@@ -1,5 +1,5 @@
 #include "dsp/ZeroPhaseFilter.h"
-#include "common/BinaryMatrix.h"
+#include "FixtureMatrix.h"
 
 #include <gtest/gtest.h>
 
@@ -7,7 +7,7 @@
 #include <numbers>
 #include <vector>
 
-using namespace rvctuner;
+using namespace tuner;
 
 namespace
 {
@@ -132,10 +132,10 @@ TEST_F (ZeroPhaseFilterTest, TheFilterIsZeroPhase)
 
 TEST_F (ZeroPhaseFilterTest, TheHighPassMatchesTheReferenceFiltfilt)
 {
-    const juce::File fixtures { RVCTUNER_TEST_FIXTURE_DIR };
+    const juce::File fixtures { TUNER_TEST_FIXTURE_DIR };
 
-    const auto sourceFixture = BinaryMatrix::load (fixtures.getChildFile ("test_signal.bin"));
-    const auto expected = BinaryMatrix::load (fixtures.getChildFile ("expected_high_pass.bin"));
+    const auto sourceFixture = tuner::test::FixtureMatrix::load (fixtures.getChildFile ("test_signal.bin"));
+    const auto expected = tuner::test::FixtureMatrix::load (fixtures.getChildFile ("expected_high_pass.bin"));
 
     ASSERT_TRUE (sourceFixture.isValid()) << sourceFixture.getError();
     ASSERT_TRUE (expected.isValid()) << expected.getError();

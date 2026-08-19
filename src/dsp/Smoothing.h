@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Replaces each entry with the median of the window centred on it.
     @param values      Sequence to filter.

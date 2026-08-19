@@ -17,7 +17,7 @@
 #include <atomic>
 #include <thread>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The whole application: a recording, the notes read out of it, and everything that acts
            on them.
@@ -69,7 +69,7 @@ private:
 
     PanelLookAndFeel lookAndFeel;
 
-    ToolBar toolBar { document, pipeline };
+    ToolBar toolBar { document };
     EditorView editor { document };
     Inspector inspector { document };
     TransportBar transport { player };

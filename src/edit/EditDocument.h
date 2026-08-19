@@ -9,7 +9,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief One recording open for editing: what was sung, what it should become, and how to undo.
 

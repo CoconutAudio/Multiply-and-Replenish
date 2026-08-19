@@ -4,7 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief What the selected notes are doing, and the dials that change it for all of them at once. */
 class Inspector final : public juce::Component,

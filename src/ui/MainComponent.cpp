@@ -1,11 +1,10 @@
 #include "ui/MainComponent.h"
 
-#include "Product.h"
 #include "edit/MidiExport.h"
 
 #include <atomic>
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {
@@ -69,7 +68,11 @@ MainComponent::MainComponent()
             scheduler.setPriorityFrame (document.getFrameForTime (seconds));
     };
 
-    editor.setCaption (Product::summary, false);
+    editor.setCaption ("Open a vocal take to begin.\n\n"
+                       "Its melody is heard note by note, corrected the way you ask, and sung back "
+                       "by a mel vocoder, which keeps whichever voice was recorded and needs no "
+                       "model of it.",
+                       false);
 
     status = "no recording open";
     setSize (1360, 820);

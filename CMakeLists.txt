@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RVCTuner
-    VERSION 0.1.0
+project(Tuner
+    VERSION 0.2.0
     DESCRIPTION "Vocal pitch editor: analyse a sung take, edit its melody, hear it back sung"
-    HOMEPAGE_URL "https://github.com/vivekvjyn/RVCTuner"
+    HOMEPAGE_URL "https://github.com/vivekvjyn/Tuner"
     LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -16,44 +16,18 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
-option(RVCTUNER_BUILD_TESTS "Build the unit tests" ON)
+option(TUNER_BUILD_TESTS "Build the unit tests" ON)
+option(TUNER_BUILD_PLUGIN "Build the ARA plug-in" ON)
 
-set(RVCTUNER_ONNXRUNTIME_ROOT "" CACHE PATH
-    "ONNX Runtime installation to build against, when it is not on the default search paths")
+set(TUNER_ONNXRUNTIME_ROOT "" CACHE PATH
+    "ONNX Runtime installation to build against, instead of the system one or a downloaded release")
 
-if(RVCTUNER_ONNXRUNTIME_ROOT)
-    set(onnxruntimeHints
-        "${RVCTUNER_ONNXRUNTIME_ROOT}/include/onnxruntime"
-        "${RVCTUNER_ONNXRUNTIME_ROOT}/include")
-    set(onnxruntimeLibraryHints "${RVCTUNER_ONNXRUNTIME_ROOT}/lib" "${RVCTUNER_ONNXRUNTIME_ROOT}/bin")
-else()
-    set(onnxruntimeHints "")
-    set(onnxruntimeLibraryHints "")
-endif()
+set(TUNER_ONNXRUNTIME_VERSION "1.19.2" CACHE STRING
+    "Version of ONNX Runtime to download when none is installed")
 
-find_path(RVCTUNER_ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
-    HINTS ${onnxruntimeHints}
-    PATH_SUFFIXES onnxruntime)
+include(cmake/OnnxRuntime.cmake)
 
-find_library(RVCTUNER_ONNXRUNTIME_LIBRARY onnxruntime
-    HINTS ${onnxruntimeLibraryHints})
-
-if(NOT RVCTUNER_ONNXRUNTIME_INCLUDE_DIR OR NOT RVCTUNER_ONNXRUNTIME_LIBRARY)
-    message(FATAL_ERROR
-        "ONNX Runtime was not found. Install it (Fedora: onnxruntime-devel, macOS: brew install "
-        "onnxruntime, Windows: the release zip) and configure again, or point CMake at an existing "
-        "copy:\n    cmake -B build -DRVCTUNER_ONNXRUNTIME_ROOT=/path/to/onnxruntime")
-endif()
-
-message(STATUS "ONNX Runtime: ${RVCTUNER_ONNXRUNTIME_LIBRARY}")
-
-add_library(rvctuner_onnxruntime SHARED IMPORTED GLOBAL)
-set_target_properties(rvctuner_onnxruntime PROPERTIES
-    IMPORTED_LOCATION "${RVCTUNER_ONNXRUNTIME_LIBRARY}"
-    IMPORTED_IMPLIB "${RVCTUNER_ONNXRUNTIME_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${RVCTUNER_ONNXRUNTIME_INCLUDE_DIR}")
-
-foreach(submodule JUCE googletest hnswlib)
+foreach(submodule JUCE googletest)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/CMakeLists.txt")
         message(FATAL_ERROR "libs/${submodule} is empty. See the build steps in README.md.")
     endif()
@@ -61,15 +35,28 @@ endforeach()
 
 add_subdirectory(libs/JUCE)
 
-add_library(rvctuner_hnswlib INTERFACE)
-target_include_directories(rvctuner_hnswlib SYSTEM INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/libs/hnswlib")
+set(TUNER_ARA_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/ARA_SDK")
 
-add_library(rvctuner_warnings INTERFACE)
+if(TUNER_BUILD_PLUGIN AND EXISTS "${TUNER_ARA_SDK_PATH}/ARA_Library/PlugIn/ARAPlug.h")
+    juce_set_ara_sdk_path("${TUNER_ARA_SDK_PATH}")
+    set(TUNER_ARA_AVAILABLE TRUE)
+    message(STATUS "ARA SDK: ${TUNER_ARA_SDK_PATH}")
+else()
+    set(TUNER_ARA_AVAILABLE FALSE)
+
+    if(TUNER_BUILD_PLUGIN)
+        message(STATUS "ARA SDK not checked out; the plug-in will build without ARA. Run:\n"
+                       "    git submodule update --init --depth 1 libs/ARA_SDK\n"
+                       "    git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library")
+    endif()
+endif()
+
+add_library(tuner_warnings INTERFACE)
 
 if(MSVC)
-    target_compile_options(rvctuner_warnings INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
+    target_compile_options(tuner_warnings INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
 else()
-    target_compile_options(rvctuner_warnings INTERFACE
+    target_compile_options(tuner_warnings INTERFACE
         $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic
             -Wshadow                # a shadowed sampleRate is a real bug here
             -Wnon-virtual-dtor
@@ -77,7 +64,7 @@ else()
             -Woverloaded-virtual>)
 endif()
 
-function(rvctuner_apply_strict_warnings)
+function(tuner_apply_strict_warnings)
     if(MSVC)
         return()
     endif()
@@ -95,8 +82,7 @@ function(rvctuner_apply_strict_warnings)
     endforeach()
 endfunction()
 
-set(RVCTUNER_ENGINE_SOURCES
-    src/common/BinaryMatrix.cpp
+set(TUNER_ENGINE_SOURCES
     src/dsp/MelFilterBank.cpp
     src/dsp/MelSpectrogram.cpp
     src/dsp/SincResampler.cpp
@@ -105,50 +91,42 @@ set(RVCTUNER_ENGINE_SOURCES
     src/edit/CorrectionCurve.cpp
     src/edit/EditDocument.cpp
     src/edit/MidiExport.cpp
+    src/edit/NoteSegmenter.cpp
     src/edit/Pipeline.cpp
     src/edit/RenderScheduler.cpp
-    src/edit/NoteSegmenter.cpp
     src/edit/Scale.cpp
     src/model/FcpeDetector.cpp
-    src/model/FeatureRetriever.cpp
     src/model/MelSynthesiser.cpp
-    src/model/ModelManifest.cpp
+    src/model/ModelLibrary.cpp
     src/model/OnnxSession.cpp
-    src/model/RmvpeDetector.cpp
-    src/model/VoiceLoader.cpp
-    src/model/VoiceModel.cpp
-    src/model/VoiceModelLibrary.cpp
-    src/model/VoiceSynthesiser.cpp)
+    src/model/RmvpeDetector.cpp)
 
-add_library(rvctuner_engine STATIC ${RVCTUNER_ENGINE_SOURCES})
-target_include_directories(rvctuner_engine PUBLIC src)
+add_library(tuner_engine STATIC ${TUNER_ENGINE_SOURCES})
+target_include_directories(tuner_engine PUBLIC src)
 
-target_link_libraries(rvctuner_engine
+target_link_libraries(tuner_engine
     PUBLIC
         juce::juce_audio_basics
         juce::juce_audio_formats
         juce::juce_core
-        juce::juce_dsp
         juce::juce_data_structures
+        juce::juce_dsp
         juce::juce_events
-        rvctuner_onnxruntime
+        tuner_onnxruntime
     PRIVATE
-        rvctuner_hnswlib
-        rvctuner_warnings)
+        tuner_warnings)
 
-target_compile_definitions(rvctuner_engine PUBLIC
+target_compile_definitions(tuner_engine PUBLIC
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=0)
 
-target_compile_definitions(rvctuner_engine PRIVATE
-    RVCTUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
+target_compile_definitions(tuner_engine PRIVATE
+    TUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
 
-set(RVCTUNER_APP_SOURCES
-    src/Main.cpp
-    src/audio/TransportPlayer.cpp
+set(TUNER_UI_SOURCES
     src/ui/EditorView.cpp
     src/ui/Inspector.cpp
     src/ui/MainComponent.cpp
@@ -157,71 +135,147 @@ set(RVCTUNER_APP_SOURCES
     src/ui/ToolBar.cpp
     src/ui/TransportBar.cpp)
 
-# One editor, two builds of it: the engine is fixed at build time so that each app is one thing.
-function(rvctuner_add_app target productName isVoiceBuild)
-    juce_add_gui_app(${target}
-        PRODUCT_NAME "${productName}"
+add_library(tuner_ui STATIC ${TUNER_UI_SOURCES} src/audio/TransportPlayer.cpp)
+target_include_directories(tuner_ui PUBLIC src)
+
+target_link_libraries(tuner_ui
+    PUBLIC
+        tuner_engine
+        juce::juce_audio_devices
+        juce::juce_audio_utils
+        juce::juce_gui_extra
+    PRIVATE
+        tuner_warnings)
+
+juce_add_gui_app(Tuner
+    PRODUCT_NAME "Tuner"
+    COMPANY_NAME "Pitch Innovations"
+    BUNDLE_ID "com.pitchinnovations.tuner"
+    DESCRIPTION "Vocal pitch editor"
+    NEEDS_CURL FALSE
+    NEEDS_WEB_BROWSER FALSE)
+
+target_sources(Tuner PRIVATE src/Main.cpp)
+target_include_directories(Tuner PRIVATE src)
+
+target_compile_definitions(Tuner PUBLIC
+    JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:Tuner,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:Tuner,JUCE_VERSION>")
+
+target_link_libraries(Tuner
+    PRIVATE
+        tuner_ui
+        tuner_warnings
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags)
+
+tuner_copy_onnxruntime_beside(Tuner)
+
+if(TUNER_BUILD_PLUGIN)
+    set(TUNER_PLUGIN_FORMATS VST3 LV2 Standalone)
+
+    if(APPLE)
+        list(APPEND TUNER_PLUGIN_FORMATS AU)
+    endif()
+
+    juce_add_plugin(TunerPlugin
+        PLUGIN_MANUFACTURER_CODE Pinn
+        PLUGIN_CODE Tunr
+        MANUFACTURER_NAME "Pitch Innovations"
         COMPANY_NAME "Pitch Innovations"
-        BUNDLE_ID "com.pitchinnovations.${target}"
+        BUNDLE_ID "com.pitchinnovations.tunerplugin"
+        PRODUCT_NAME "Tuner"
         DESCRIPTION "Vocal pitch editor"
-        NEEDS_CURL FALSE
-        NEEDS_WEB_BROWSER FALSE)
 
-    target_sources(${target} PRIVATE ${RVCTUNER_APP_SOURCES})
-    target_include_directories(${target} PRIVATE src)
+        FORMATS ${TUNER_PLUGIN_FORMATS}
+        LV2URI "https://github.com/vivekvjyn/Tuner"
+        IS_ARA_EFFECT ${TUNER_ARA_AVAILABLE}
+        ARA_FACTORY_ID "\"com.pitchinnovations.tuner.arafactory.0.2.0\""
+        ARA_DOCUMENT_ARCHIVE_ID "\"com.pitchinnovations.tuner.aradocumentarchive.1\""
+        ARA_ANALYSIS_TYPES kARAContentTypeNotes
 
-    target_compile_definitions(${target} PUBLIC
-        RVCTUNER_VOICE_BUILD=${isVoiceBuild}
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        COPY_PLUGIN_AFTER_BUILD FALSE
+        VST3_AUTO_MANIFEST FALSE)
+
+    target_sources(TunerPlugin PRIVATE
+        src/plugin/Processor.cpp
+        src/plugin/Editor.cpp
+        src/plugin/DocumentController.cpp
+        src/plugin/PlaybackRenderer.cpp
+        src/plugin/Modification.cpp)
+
+    target_include_directories(TunerPlugin PRIVATE src)
+
+    target_compile_definitions(TunerPlugin PUBLIC
         JUCE_USE_MP3AUDIOFORMAT=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
         JUCE_MODAL_LOOPS_PERMITTED=0
-        JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
-        JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
+        TUNER_ARA_AVAILABLE=$<BOOL:${TUNER_ARA_AVAILABLE}>)
 
-    target_link_libraries(${target}
+    target_link_libraries(TunerPlugin
         PRIVATE
-            rvctuner_engine
-            rvctuner_warnings
-            juce::juce_audio_devices
-            juce::juce_audio_utils
-            juce::juce_gui_extra
+            tuner_ui
+            tuner_warnings
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_lto_flags)
-endfunction()
 
-rvctuner_add_app(RVCTunerMel "RVCTuner Mel" 0)
-rvctuner_add_app(RVCTunerVoice "RVCTuner Voice" 1)
+    foreach(format ${TUNER_PLUGIN_FORMATS})
+        if(TARGET TunerPlugin_${format})
+            tuner_copy_onnxruntime_beside(TunerPlugin_${format})
+        endif()
+    endforeach()
+endif()
 
-juce_add_console_app(rvctuner_tune
-    PRODUCT_NAME "rvctuner-tune")
+juce_add_console_app(tuner_tune
+    PRODUCT_NAME "tuner-tune")
 
-target_sources(rvctuner_tune PRIVATE tools/TuneCli.cpp)
-target_include_directories(rvctuner_tune PRIVATE src)
+target_sources(tuner_tune PRIVATE tools/TuneCli.cpp)
+target_include_directories(tuner_tune PRIVATE src)
 
-target_compile_definitions(rvctuner_tune PRIVATE
-    RVCTUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
+target_compile_definitions(tuner_tune PRIVATE
+    TUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
 
-target_link_libraries(rvctuner_tune
+target_link_libraries(tuner_tune
     PRIVATE
-        rvctuner_engine
-        rvctuner_warnings
+        tuner_engine
+        tuner_warnings
     PUBLIC
         juce::juce_recommended_config_flags)
+
+tuner_copy_onnxruntime_beside(tuner_tune)
+
+tuner_apply_strict_warnings(
+    src/dsp/MelFilterBank.cpp
+    src/dsp/SincResampler.cpp
+    src/dsp/Smoothing.cpp
+    src/dsp/ZeroPhaseFilter.cpp)
 
 find_package(Doxygen)
 
 if(DOXYGEN_FOUND)
-    add_custom_target(rvctuner_docs
+    add_custom_target(tuner_docs
         COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs"
         COMMENT "Generating API documentation"
         VERBATIM)
 endif()
 
-if(RVCTUNER_BUILD_TESTS)
+if(TUNER_BUILD_TESTS)
     enable_testing()
     set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)

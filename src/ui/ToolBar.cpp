@@ -1,9 +1,8 @@
 #include "ui/ToolBar.h"
 
-#include "Product.h"
 #include "ui/PanelLookAndFeel.h"
 
-namespace rvctuner
+namespace tuner
 {
 namespace
 {
@@ -12,9 +11,8 @@ namespace
     using Metrics = PanelLookAndFeel::Metrics;
 }
 
-ToolBar::ToolBar (EditDocument& documentToEdit, Pipeline& pipelineToRun)
-    : document (documentToEdit),
-      pipeline (pipelineToRun)
+ToolBar::ToolBar (EditDocument& documentToEdit)
+    : document (documentToEdit)
 {
     setOpaque (true);
     document.addListener (this);
@@ -62,17 +60,6 @@ ToolBar::ToolBar (EditDocument& documentToEdit, Pipeline& pipelineToRun)
     detectorBox.setSelectedItemIndex (0, juce::dontSendNotification);
     addAndMakeVisible (detectorBox);
 
-    if (Product::isVoiceBuild)
-    {
-        for (const auto& entry : pipeline.getVoiceLibrary().getEntries())
-            voiceBox.addItem (entry.name, voiceBox.getNumItems() + 1);
-
-        if (voiceBox.getNumItems() > 0)
-            voiceBox.setSelectedItemIndex (0, juce::dontSendNotification);
-
-        addAndMakeVisible (voiceBox);
-    }
-
     const auto configureSlider = [this] (juce::Slider& slider, double minimum, double maximum,
                                          double interval, double value, const juce::String& suffix)
     {
@@ -98,9 +85,6 @@ ToolBar::ToolBar (EditDocument& documentToEdit, Pipeline& pipelineToRun)
                  { &transitionSlider, "TRANSITION" },
                  { &vibratoSlider, "VIBRATO" },
                  { &driftSlider, "DRIFT" } };
-
-    if (Product::isVoiceBuild)
-        labelled.emplace_back (&voiceBox, "VOICE");
 }
 
 ToolBar::~ToolBar()
@@ -116,6 +100,17 @@ void ToolBar::setTool (NoteGrid::Tool tool)
     joinTool.setToggleState (tool == NoteGrid::Tool::join, juce::dontSendNotification);
 }
 
+void ToolBar::setHostMode (bool isHosted)
+{
+    const std::initializer_list<juce::Component*> hostProvided { &openButton, &exportButton,
+                                                                 &analyseButton, &detectorBox };
+
+    for (auto* component : hostProvided)
+        component->setVisible (! isHosted);
+
+    resized();
+}
+
 void ToolBar::setBusy (bool isBusy)
 {
     for (auto* button : { &openButton, &exportButton, &analyseButton })
@@ -127,9 +122,6 @@ EngineOptions ToolBar::getEngineOptions() const
     EngineOptions options;
 
     options.detector = static_cast<EngineOptions::Detector> (std::max (0, detectorBox.getSelectedItemIndex()));
-    options.engine = Product::isVoiceBuild ? EngineOptions::Engine::voiceModel
-                                           : EngineOptions::Engine::melVocoder;
-    options.voiceName = voiceBox.getText();
 
     return options;
 }
@@ -205,9 +197,6 @@ void ToolBar::resized()
     place (analyseButton, 84);
     top.removeFromLeft (Metrics::gap);
     place (detectorBox, 92);
-
-    if (Product::isVoiceBuild)
-        place (voiceBox, 116);
 
     bounds.removeFromTop (14);
 

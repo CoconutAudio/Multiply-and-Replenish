@@ -4,7 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief The editor proper: a keyboard and a ruler pinned around the scrolling note grid, with the
            waveform beneath it and a zoom for each axis.

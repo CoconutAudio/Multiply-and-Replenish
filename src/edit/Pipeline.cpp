@@ -4,22 +4,11 @@
 #include "model/FcpeDetector.h"
 #include "model/MelSynthesiser.h"
 #include "model/RmvpeDetector.h"
-#include "model/VoiceSynthesiser.h"
 
 #include <algorithm>
 
-namespace rvctuner
+namespace tuner
 {
-juce::StringArray EngineOptions::getDetectorNames()
-{
-    return { "FCPE", "RMVPE" };
-}
-
-juce::StringArray EngineOptions::getEngineNames()
-{
-    return { "PC-NSF-HiFiGAN", "RVC voice" };
-}
-
 namespace
 {
     /** @brief Threads to give the networks, keeping two cores for playback and the editor. */
@@ -30,12 +19,24 @@ namespace
 
         return std::max (1, juce::SystemStats::getNumPhysicalCpus() - 2);
     }
+
+    juce::String describeMissingModel (const juce::String& file, const ModelLibrary& models)
+    {
+        return "no " + file + " found. Install the models under "
+             + ModelLibrary::getUserModelDirectory().getFullPathName()
+             + ", or set TUNER_MODEL_PATH. Looked in "
+             + juce::String (static_cast<int> (models.getSearchPaths().size())) + " places.";
+    }
+}
+
+juce::StringArray EngineOptions::getDetectorNames()
+{
+    return { "FCPE", "RMVPE" };
 }
 
 Pipeline::Pipeline()
-    : juce::Thread ("RVCTuner analysis")
+    : juce::Thread ("Tuner analysis")
 {
-    voices.rescan();
 }
 
 Pipeline::~Pipeline()
@@ -45,19 +46,6 @@ Pipeline::~Pipeline()
 
 void Pipeline::addListener (Listener* listener) { listeners.add (listener); }
 void Pipeline::removeListener (Listener* listener) { listeners.remove (listener); }
-
-juce::File Pipeline::findModelFile (const juce::String& relativePath) const
-{
-    for (const auto& searchPath : voices.getSearchPaths())
-    {
-        const auto candidate = searchPath.getChildFile (relativePath);
-
-        if (candidate.existsAsFile())
-            return candidate;
-    }
-
-    return {};
-}
 
 void Pipeline::cancel()
 {
@@ -102,7 +90,6 @@ void Pipeline::start (const juce::AudioBuffer<float>& recording,
     }
 
     synthesiser.reset();
-    voiceModel.reset();
     melody = {};
 
     startThread (Priority::normal);
@@ -133,70 +120,27 @@ void Pipeline::run()
 
     report (0.02f, "loading the pitch model");
 
-    std::unique_ptr<PitchDetector> ownedDetector;
-    const PitchDetector* detector = nullptr;
-    std::unique_ptr<VoiceModel> loadedVoice;
-
-    if (options.engine == EngineOptions::Engine::voiceModel)
-    {
-        const auto* entry = voices.findByName (options.voiceName);
-
-        if (entry == nullptr && ! voices.getEntries().empty())
-            entry = &voices.getEntries().front();
-
-        if (entry == nullptr)
-        {
-            fail ("no RVC voice is installed under "
-                  + VoiceModelLibrary::getUserModelDirectory().getFullPathName());
-            return;
-        }
-
-        loadedVoice = VoiceModel::load (entry->directory, chooseNumThreads (options.numThreads), loadError);
-
-        if (loadedVoice == nullptr)
-        {
-            fail (loadError);
-            return;
-        }
-    }
+    std::unique_ptr<PitchDetector> detector;
 
     if (options.detector == EngineOptions::Detector::rmvpe)
     {
-        if (const auto standalone = findModelFile ("rmvpe/rmvpe.onnx"); standalone.existsAsFile())
-        {
-            ownedDetector = RmvpeDetector::load (standalone, {}, {}, chooseNumThreads (options.numThreads), loadError);
-            detector = ownedDetector.get();
-        }
-        else if (loadedVoice != nullptr)
-        {
-            detector = &loadedVoice->getPitchDetector();
-        }
-        else if (const auto* entry = voices.findByName (options.voiceName);
-                 entry != nullptr || ! voices.getEntries().empty())
-        {
-            const auto& chosen = entry != nullptr ? *entry : voices.getEntries().front();
-            loadedVoice = VoiceModel::load (chosen.directory, chooseNumThreads (options.numThreads), loadError);
+        const auto modelFile = models.find ("rmvpe/rmvpe.onnx");
 
-            if (loadedVoice != nullptr)
-                detector = &loadedVoice->getPitchDetector();
-        }
+        if (modelFile.existsAsFile())
+            detector = RmvpeDetector::load (modelFile, {}, {}, chooseNumThreads (options.numThreads), loadError);
     }
 
     if (detector == nullptr)
     {
-        const auto modelFile = findModelFile ("pitchnet/fcpe.onnx");
+        const auto modelFile = models.find ("pitchnet/fcpe.onnx");
 
         if (! modelFile.existsAsFile())
         {
-            fail (loadError.isNotEmpty()
-                      ? loadError
-                      : "no pitch model found: install pitchnet/fcpe.onnx, or an RVC voice, under "
-                            + VoiceModelLibrary::getUserModelDirectory().getFullPathName());
+            fail (loadError.isNotEmpty() ? loadError : describeMissingModel ("pitch model", models));
             return;
         }
 
-        ownedDetector = FcpeDetector::load (modelFile, {}, chooseNumThreads (options.numThreads), loadError);
-        detector = ownedDetector.get();
+        detector = FcpeDetector::load (modelFile, {}, chooseNumThreads (options.numThreads), loadError);
     }
 
     if (detector == nullptr)
@@ -231,42 +175,20 @@ void Pipeline::run()
     if (threadShouldExit())
         return;
 
-    std::shared_ptr<Synthesiser> engine;
+    const auto vocoderFile = models.find ("pitchnet/pc_nsf_hifigan.onnx");
 
-    if (options.engine == EngineOptions::Engine::voiceModel)
+    if (! vocoderFile.existsAsFile())
     {
-        if (loadedVoice == nullptr)
-        {
-            fail (loadError.isNotEmpty() ? loadError : "no voice model could be loaded");
-            return;
-        }
-
-        ContentSettings content;
-        content.retrievalRatio = options.retrievalRatio;
-        content.consonantProtection = options.consonantProtection;
-
-        engine = std::make_shared<VoiceSynthesiser> (*loadedVoice, content);
+        fail (describeMissingModel ("vocoder", models));
+        return;
     }
-    else
+
+    auto engine = MelSynthesiser::load (vocoderFile, {}, chooseNumThreads (options.numThreads), loadError);
+
+    if (engine == nullptr)
     {
-        const auto modelFile = findModelFile ("pitchnet/pc_nsf_hifigan.onnx");
-
-        if (! modelFile.existsAsFile())
-        {
-            fail ("no vocoder found: install pitchnet/pc_nsf_hifigan.onnx under "
-                  + VoiceModelLibrary::getUserModelDirectory().getFullPathName());
-            return;
-        }
-
-        auto melEngine = MelSynthesiser::load (modelFile, {}, chooseNumThreads (options.numThreads), loadError);
-
-        if (melEngine == nullptr)
-        {
-            fail (loadError);
-            return;
-        }
-
-        engine = std::move (melEngine);
+        fail (loadError);
+        return;
     }
 
     const auto prepared = engine->prepare (source,
@@ -288,7 +210,6 @@ void Pipeline::run()
         return;
     }
 
-    voiceModel = std::move (loadedVoice);
     synthesiser = std::move (engine);
 
     {

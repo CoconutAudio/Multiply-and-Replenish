@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief A melody as estimated: one fundamental and one confidence per frame.
 

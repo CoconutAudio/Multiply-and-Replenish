@@ -1,18 +1,14 @@
-# RVCTuner
+# Tuner
+
+[![build](https://github.com/vivekvjyn/Tuner/actions/workflows/build.yml/badge.svg)](https://github.com/vivekvjyn/Tuner/actions/workflows/build.yml)
 
 A vocal pitch editor, in the shape of Newtone: open a take, see the melody as notes on a piano
 roll, move them, and hear the take sung back at the pitches you put them on.
 
-It builds as **two apps**. They share an editor and differ in what sings:
-
-| App | Engine | Needs |
-| --- | --- | --- |
-| **RVCTuner Mel** | PC-NSF-HiFiGAN, a mel vocoder | nothing but the vocoder; keeps whichever voice was recorded |
-| **RVCTuner Voice** | the RVC pipeline | a voice model, which is the voice that comes out |
+It builds as a standalone app and as an ARA plug-in — VST3 and LV2 everywhere, AU on macOS.
 
 ```bash
-./build/RVCTunerMel_artefacts/RelWithDebInfo/"RVCTuner Mel" take.wav
-./build/RVCTunerVoice_artefacts/RelWithDebInfo/"RVCTuner Voice" take.wav
+Tuner take.wav
 ```
 
 ---
@@ -27,11 +23,11 @@ it, but each channel is rendered on its own, so a stereo take comes back stereo.
 ```
 recording
     │
-    ├─ pitch detection ── a fundamental every 10 ms          (RMVPE or FCPE)
+    ├─ pitch detection ── a fundamental every 10 ms          (FCPE, or RMVPE)
     ├─ segmentation ───── one note per sung pitch
     ├─ editing ────────── the piano roll: move, split, join, draw, retune
     ├─ correction ─────── a shift per frame, note by note
-    └─ synthesis ──────── the take, re-sung                  (PC-NSF-HiFiGAN or an RVC voice)
+    └─ synthesis ──────── the take, re-sung                  (PC-NSF-HiFiGAN)
     │
     ▼
 corrected audio, and the melody as MIDI
@@ -40,25 +36,16 @@ corrected audio, and the melody as MIDI
 Editing does not re-read the recording. Only the two seconds around an edit are rendered again,
 nearest the playhead first, so an edit is audible about as fast as you can make the next one.
 
-## The two engines
+## The engine
 
-**PC-NSF-HiFiGAN**, which RVCTuner Mel runs, is a vocoder conditioned on a mel spectrogram and a
-fundamental *separately*: the mel carries the timbre and the words, the fundamental carries the
-tune, and it was trained on pairs where the two disagree. It re-sings whoever was recorded and
-needs no model of them, which is the whole point for a corrector — the voice that comes out is the
-voice that went in.
+**PC-NSF-HiFiGAN** is a vocoder conditioned on a mel spectrogram and a fundamental *separately*:
+the mel carries the timbre and the words, the fundamental carries the tune, and it was trained on
+pairs where the two disagree. It re-sings whoever was recorded and needs no model of them, which is
+the whole point for a corrector — the voice that comes out is the voice that went in.
 
-**An RVC voice**, which RVCTuner Voice runs, is the other engine. Its content encoder strips the pitch out of the recording and
-keeps everything else; its vocoder puts the edited melody back in. The vocoder's weights *are* a
-voice, so this engine is a pitch corrector only when the voice it was trained on is the voice in
-the recording — one of your own, trained with the sibling [RTVoice](https://github.com/vivekvjyn/RTVoice)
-project. Point it at anyone else's model and it is a voice converter, not a tuner. The render is held to the
-loudness of the recording frame by frame, because the vocoder otherwise sings at the loudness of
-whatever it was trained on.
-
-Both engines are offline and run on the CPU, and leave two cores free so that rendering cannot
-stutter playback. Neither is usable for live monitoring: the detectors see the future, and the
-correction is defined over whole notes.
+It is offline and runs on the CPU, leaving two cores free so that rendering cannot stutter
+playback. It is not usable for live monitoring: the detectors see the future, and the correction is
+defined over whole notes.
 
 ## Why a corrected note still sounds sung
 
@@ -98,42 +85,51 @@ The dials along the top act on every note at once; the ones along the bottom act
 `Shortest note` decides how readily the melody is cut up — raise it on a legato take with a wide
 vibrato, lower it on something fast.
 
+## The plug-in
+
+A pitch editor needs the whole take before it can hear a melody in it, which is what **ARA**
+provides: the host hands over each region up front, the analysis runs once, and the notes are saved
+with the session. Reaper, Studio One, Logic and Cubase can load it that way. In a host that does not
+speak ARA the plug-in passes its audio through and says so, because there is nothing useful it can
+do a block at a time — use the standalone app instead.
+
 ## Requirements
 
 - Linux, macOS or Windows
 - CMake 3.24, a C++20 compiler
-- ONNX Runtime (Fedora: `onnxruntime-devel`, macOS: `brew install onnxruntime`)
+
+ONNX Runtime is found if it is installed, and downloaded for the platform if it is not.
 
 ## Setup
 
 ```bash
-git clone --recursive https://github.com/vivekvjyn/RVCTuner.git
-cd RVCTuner
-git submodule update --init --depth 1 libs/JUCE libs/googletest libs/hnswlib
+git clone https://github.com/vivekvjyn/Tuner.git
+cd Tuner
+git submodule update --init --depth 1 libs/JUCE libs/googletest libs/ARA_SDK
+git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
 
 cmake -B build
 cmake --build build
 ```
 
-If ONNX Runtime is somewhere CMake cannot see:
+The ARA SDK is only needed for the plug-in; without it the plug-in still builds, without ARA.
+To build against an ONNX Runtime of your own:
 
 ```bash
-cmake -B build -DRVCTUNER_ONNXRUNTIME_ROOT=/path/to/onnxruntime
+cmake -B build -DTUNER_ONNXRUNTIME_ROOT=/path/to/onnxruntime
 ```
 
 Then put the networks where the app looks for them — see [res/models/README.md](res/models/README.md).
-The mel vocoder and one detector are enough to correct anything; an RVC voice is optional.
 
 ## Command line
 
 The same engine without the editor, for batch work and for hearing what a setting does:
 
 ```bash
-rvctuner-tune take.wav tuned.wav                       # correct to the chromatic scale
-rvctuner-tune take.wav tuned.wav --key A --scale minor
-rvctuner-tune take.wav tuned.wav --correction 0.6 --vibrato 1.2 --transition 80
-rvctuner-tune take.wav tuned.wav --engine voice --voice female1
-rvctuner-tune take.wav tuned.wav --detector fcpe
+tuner-tune take.wav tuned.wav                       # correct to the chromatic scale
+tuner-tune take.wav tuned.wav --key A --scale minor
+tuner-tune take.wav tuned.wav --correction 0.6 --vibrato 1.2 --transition 80
+tuner-tune take.wav tuned.wav --detector rmvpe
 ```
 
 It prints how many notes it found and how far out of tune they were, which is the quickest way to
@@ -142,15 +138,16 @@ check a take before opening it.
 ## Layout
 
 ```
-CMakeLists.txt        one target for the engine, one per app, one for the tests
+CMakeLists.txt        one target for the engine, one for the app, one for the plug-in, one for the tests
+cmake/                finding or fetching ONNX Runtime
 src/
   Main.cpp            the application
-  common/             the matrix format the exporters write
   dsp/                resampling, filtering, mel spectra, smoothing, pitch maths
-  model/              the detectors and the engines, behind two interfaces
+  model/              the detectors and the vocoder, behind two interfaces
   edit/               the document, the notes, the correction, the renderer, the pipeline
   audio/              playback
   ui/                 the editor and its panels
+  plugin/             the ARA plug-in: document controller, modification, playback renderer
 tools/TuneCli.cpp     the command line
 tests/                the GoogleTest suite
 res/models/           where the networks go, and what they are
@@ -158,9 +155,7 @@ docs/                 Doxygen
 ```
 
 `src/model/PitchDetector.h` and `src/model/Synthesiser.h` are the two interfaces everything else is
-written against, which is what makes the algorithms a choice rather than a rewrite. `src/Product.h`
-is the only thing that differs between the two apps: which engine the build runs, and what it calls
-itself.
+written against, which is what makes the algorithms a choice rather than a rewrite.
 
 ## What is measured
 
@@ -172,36 +167,37 @@ Running the correction over a 20-second operatic take and re-analysing the resul
 | Average error | 26.2 cents | 13.3 cents |
 
 Shifting a take two semitones moves the measured pitch by 2.000 semitones and the spectral centroid
-by 17 Hz, which is the point of a mel vocoder: the formants stay where the singer put them.
+by 17 Hz: the formants stay where the singer put them. A panned vocal keeps its balance to within a
+twentieth of a decibel. Rendering runs at about 4× real time on a six-core CPU, so a two-second span
+takes about half a second to come back.
 
-Rendering runs at about 4× real time on a six-core CPU, so a two-second span takes about half a
-second to come back.
+On a synthetic flute the vocoder reconstructs faithfully to C6 and then drifts sharp — +62 cents at
+B6, where no singer ever trained it. Instruments above that range need a vocoder trained on them.
 
 ## Known limitations
 
-- **Stereo width that lives in phase does not survive.** Channels are read and rendered one by
-  one, so a stereo file stays stereo and a panned vocal keeps its balance to within a twentieth of
-  a decibel. But a mel spectrogram holds no phase, so width that comes from a delay or a chorus
-  between the channels collapses towards the middle: a four millisecond offset measured six times
-  narrower coming out. Correct the dry vocal and add the width afterwards. Two channels that arrive
-  identical are read and rendered once, and come back bit-identical, so a mono take in a stereo
-  file stays exactly centred and costs nothing extra.
-- **No time editing.** Notes can be retuned, split, joined and forgotten, but not moved or
-  stretched in time; the timing you sang is the timing you get.
-- **No formant control.** The mel engine holds the formants where they were sung, which is right
-  for correction and wrong if you wanted to change the character of the voice.
-- **Nothing is saved but the audio.** Closing the editor loses the edits; re-analysis takes a few
-  seconds, so this is an annoyance rather than a loss.
+- **Stereo width that lives in phase does not survive.** Channels are read and rendered one by one,
+  so a stereo file stays stereo and a panned vocal keeps its balance. But a mel spectrogram holds no
+  phase, so width that comes from a delay or a chorus between the channels collapses towards the
+  middle: a four millisecond offset measured six times narrower coming out. Correct the dry vocal
+  and add the width afterwards. Two channels that arrive identical are read and rendered once, and
+  come back bit-identical.
+- **No time editing.** Notes can be retuned, split, joined and forgotten, but not moved or stretched
+  in time; the timing you sang is the timing you get.
+- **No formant control.** The engine holds the formants where they were sung, which is right for
+  correction and wrong if you wanted to change the character of the voice.
+- **The standalone app saves nothing but the audio.** Under ARA the edits belong to the session and
+  are stored with it; the app has no project format, so re-opening a file means re-analysing it.
 - **The detectors are monophonic.** Two voices at once, or a vocal over a backing track, will not
   segment sensibly. Separate them first.
 
 ## Development
 
 ```bash
-cmake -B build -DRVCTUNER_BUILD_TESTS=ON
+cmake -B build -DTUNER_BUILD_TESTS=ON
 cmake --build build
 ctest --test-dir build
-cmake --build build --target rvctuner_docs
+cmake --build build --target tuner_docs
 ```
 
 The suite covers what the bugs were actually in: the filter banks against the exported ones, the
@@ -209,33 +205,31 @@ resampler and the zero-phase filter against SciPy, note segmentation against mel
 vibrato deep enough to be mistaken for a run of notes, the correction curve's separation of centre
 from shake, and every edit the document exposes, including undo.
 
-## PitchNet, for reference
+CI builds all three platforms and uploads the app, the plug-ins and the command line for each.
 
-[PitchNet](https://github.com/SessionLoops/PitchNet) is the editor this one takes its engine idea
-from, and a checkout of it lives beside this repository for comparison. Two changes are needed to
-build it with GCC on Linux, both committed there: its source globs hand `*.mm` files to a compiler
-that cannot read Objective-C++, and `jmax<int64>` resolves into an incomplete SIMD specialisation.
+## Provenance and licences
 
-```bash
-cd ../PitchNet
-git submodule update --init --depth 1 third_party/JUCE third_party/r8brain-free-src
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target PitchNet
-./build/PitchNet_artefacts/Release/PitchNet
-```
+The DSP layer carries over from the author's [RVCARA](https://github.com/vivekvjyn/RVCARA) plug-in.
+The idea of running PC-NSF-HiFiGAN as a pitch editor's engine comes from
+[PitchNet](https://github.com/SessionLoops/PitchNet) and [HachiTune](https://github.com/KCKT0112/HachiTune),
+which are AGPL-3.0; no code from either is used here.
 
-It is AGPL-3.0 and stays a separate checkout for that reason; nothing here is derived from its
-source.
+This repository is MIT. The networks are not, and they are the part that decides what you may ship:
 
-## Provenance
+| | Licence | In a paid product |
+| --- | --- | --- |
+| This code | MIT | yes |
+| ONNX Runtime | MIT | yes |
+| JUCE | AGPLv3 or a commercial licence | needs the commercial licence |
+| PC-NSF-HiFiGAN weights | CC BY-NC-SA 4.0 | **no** |
+| FCPE weights | CC BY-NC-SA 4.0 | **no** |
+| RMVPE weights | none stated | **no** |
 
-The DSP and model layers carry over from the author's [RVCARA](https://github.com/vivekvjyn/RVCARA)
-plug-in and, through it, from [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI).
-The idea of running PC-NSF-HiFiGAN as a pitch editor's engine, and the two networks themselves, come
-from [PitchNet](https://github.com/SessionLoops/PitchNet) and [HachiTune](https://github.com/KCKT0112/HachiTune),
-which are AGPL-3.0; no code from either is used here, and their weights carry their own terms.
+The training code for the vocoder ([openvpi/SingingVocoders](https://github.com/openvpi/SingingVocoders))
+is MIT, so weights you train yourself are yours, and drop in unchanged: the configs already use the
+44.1 kHz, 128-bin, hop-512 mel this expects. Fine-tuning the released checkpoint does not help — a
+derivative of a NonCommercial model stays NonCommercial.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). JUCE is dual-licensed and imposes its own terms on a binary you
-distribute; the networks carry theirs.
+MIT — see [LICENSE](LICENSE).

@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace rvctuner
+namespace tuner
 {
 /** @brief Which mel scale a filter bank is spaced on. */
 enum class MelScale
