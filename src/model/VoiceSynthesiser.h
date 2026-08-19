@@ -57,7 +57,17 @@ public:
     /** @brief The seed the vocoder's latent noise is drawn from, which fixes its every detail. */
     void setLatentNoiseSeed (std::int32_t seed) noexcept { latentNoiseSeed = seed; }
 
+    /** @brief How much of the recording's loudness the render is held to, from 0 to 1.
+
+        The vocoder sings at the loudness of whatever it was trained on, which is not the loudness
+        of the take. Following the recording puts the dynamics back where the singer left them.
+    */
+    void setEnvelopeFollow (float ratio) noexcept { envelopeFollow = ratio; }
+
 private:
+    /** @brief Holds a rendered span to the loudness of the recording underneath it. */
+    void followRecording (std::vector<float>& span, int firstFrame, int numSpanFrames) const;
+
     [[nodiscard]] std::vector<float> encodeContent (const float* samples,
                                                     int numSamples,
                                                     juce::String& error) const;
@@ -67,6 +77,7 @@ private:
     ContentSettings settings;
 
     std::vector<float> conditioning;
+    std::vector<float> sourceLevel;
 
     double sourceSampleRate { 44100.0 };
     int numSourceSamples { 0 };
@@ -75,5 +86,6 @@ private:
     int contextFrames { 50 };
 
     std::int32_t latentNoiseSeed { 1 };
+    float envelopeFollow { 1.0f };
 };
 }

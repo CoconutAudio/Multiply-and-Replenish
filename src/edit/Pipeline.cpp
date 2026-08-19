@@ -12,7 +12,7 @@ namespace rvctuner
 {
 juce::StringArray EngineOptions::getDetectorNames()
 {
-    return { "RMVPE", "FCPE" };
+    return { "FCPE", "RMVPE" };
 }
 
 juce::StringArray EngineOptions::getEngineNames()

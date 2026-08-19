@@ -1,6 +1,7 @@
 #include "model/VoiceSynthesiser.h"
 
 #include "dsp/PitchConversions.h"
+#include "dsp/Smoothing.h"
 #include "dsp/SincResampler.h"
 
 #include <algorithm>
@@ -112,6 +113,35 @@ std::vector<float> VoiceSynthesiser::encodeContent (const float* samples,
     return { data, data + numElements };
 }
 
+namespace
+{
+    /** @brief The loudness of every frame of the recording, for the render to be held to. */
+    std::vector<float> measureLevel (const float* samples, int numSamples, double sampleRate,
+                                     int frameRate, int numFrames)
+    {
+        std::vector<float> level (static_cast<std::size_t> (numFrames), 0.0f);
+
+        const auto samplesPerFrame = sampleRate / static_cast<double> (frameRate);
+
+        for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
+        {
+            const auto first = static_cast<int> (static_cast<double> (frameIndex) * samplesPerFrame);
+            const auto last = std::min (static_cast<int> (static_cast<double> (frameIndex + 1) * samplesPerFrame),
+                                        numSamples);
+
+            auto sumOfSquares = 0.0;
+
+            for (int sampleIndex = std::max (first, 0); sampleIndex < last; ++sampleIndex)
+                sumOfSquares += static_cast<double> (samples[sampleIndex]) * static_cast<double> (samples[sampleIndex]);
+
+            level[static_cast<std::size_t> (frameIndex)] =
+                static_cast<float> (std::sqrt (sumOfSquares / std::max (1, last - first)));
+        }
+
+        return level;
+    }
+}
+
 bool VoiceSynthesiser::prepare (const float* samples,
                                 int numSamples,
                                 double sampleRate,
@@ -169,6 +199,8 @@ bool VoiceSynthesiser::prepare (const float* samples,
         error = "the recording is shorter than one analysis frame";
         return false;
     }
+
+    sourceLevel = measureLevel (samples, numSamples, sampleRate, frameRate, numFrames);
 
     report (0.05f);
 
@@ -266,6 +298,54 @@ bool VoiceSynthesiser::prepare (const float* samples,
 
     report (1.0f);
     return true;
+}
+
+void VoiceSynthesiser::followRecording (std::vector<float>& span, int firstFrame, int numSpanFrames) const
+{
+    if (envelopeFollow <= 0.0f || sourceLevel.empty() || span.empty())
+        return;
+
+    const auto samplesPerFrame = sourceSampleRate / static_cast<double> (frameRate);
+
+    std::vector<float> gain (static_cast<std::size_t> (numSpanFrames), 1.0f);
+
+    for (int spanFrame = 0; spanFrame < numSpanFrames; ++spanFrame)
+    {
+        const auto frameIndex = std::min (firstFrame + spanFrame, static_cast<int> (sourceLevel.size()) - 1);
+
+        const auto first = static_cast<int> (static_cast<double> (spanFrame) * samplesPerFrame);
+        const auto last = std::min (static_cast<int> (static_cast<double> (spanFrame + 1) * samplesPerFrame),
+                                    static_cast<int> (span.size()));
+
+        auto sumOfSquares = 0.0;
+
+        for (int sampleIndex = std::max (first, 0); sampleIndex < last; ++sampleIndex)
+            sumOfSquares += static_cast<double> (span[static_cast<std::size_t> (sampleIndex)])
+                          * static_cast<double> (span[static_cast<std::size_t> (sampleIndex)]);
+
+        const auto rendered = std::sqrt (sumOfSquares / std::max (1, last - first));
+        const auto wanted = static_cast<double> (sourceLevel[static_cast<std::size_t> (frameIndex)]);
+
+        const auto ratio = rendered > 1.0e-6 ? wanted / rendered : 1.0;
+
+        gain[static_cast<std::size_t> (spanFrame)] =
+            static_cast<float> (std::clamp (std::pow (ratio, static_cast<double> (envelopeFollow)), 0.25, 4.0));
+    }
+
+    const auto smoothed = gaussianFilter (gain, 4.0);
+
+    for (std::size_t sampleIndex = 0; sampleIndex < span.size(); ++sampleIndex)
+    {
+        const auto position = static_cast<double> (sampleIndex) / samplesPerFrame;
+        const auto lower = std::min (static_cast<int> (position), numSpanFrames - 1);
+        const auto upper = std::min (lower + 1, numSpanFrames - 1);
+        const auto fraction = static_cast<float> (position - static_cast<double> (lower));
+
+        const auto factor = smoothed[static_cast<std::size_t> (lower)] * (1.0f - fraction)
+                          + smoothed[static_cast<std::size_t> (upper)] * fraction;
+
+        span[sampleIndex] *= factor;
+    }
 }
 
 std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
@@ -372,6 +452,8 @@ std::vector<float> VoiceSynthesiser::render (const float* melodyHz,
     std::copy (atSourceRate.begin() + offset,
                atSourceRate.begin() + offset + numAvailable,
                span.begin());
+
+    followRecording (span, firstFrame, numSpanFrames);
 
     return span;
 }

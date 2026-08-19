@@ -15,11 +15,15 @@ namespace rvctuner
 /** @brief Which algorithms a run uses. */
 struct EngineOptions
 {
-    /** @brief The networks that can hear the melody. */
+    /** @brief The networks that can hear the melody, in the order they are offered.
+
+        FCPE comes first because it stands on its own; RMVPE is steadier on a noisy take but,
+        unless it has been exported by itself, it arrives inside an RVC voice.
+    */
     enum class Detector
     {
-        rmvpe,
-        fcpe
+        fcpe,
+        rmvpe
     };
 
     /** @brief The engines that can sing it back. */
@@ -32,7 +36,7 @@ struct EngineOptions
         voiceModel
     };
 
-    Detector detector { Detector::rmvpe };
+    Detector detector { Detector::fcpe };
     Engine engine { Engine::melVocoder };
 
     juce::String voiceName;
