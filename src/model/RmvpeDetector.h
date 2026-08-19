@@ -23,7 +23,9 @@ public:
         int localAverageRadius { 4 };
         float salienceThreshold { 0.03f };
         int frameCountMultiple { 32 };
-        double minimumFrequencyHz { 50.0 };
+        // The cent table runs from about 32.7 Hz to about 2043 Hz; these are where its answers are
+        // trusted, not where the network stops, and the old 50 Hz floor threw away a cello's range.
+        double minimumFrequencyHz { 32.0 };
         double maximumFrequencyHz { 2000.0 };
 
         MelSpectrogram::Configuration mel { 1024, 1024, 160, 128, 513, 1.0e-5f, true };

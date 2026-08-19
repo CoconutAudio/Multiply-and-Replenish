@@ -28,8 +28,11 @@ public:
         join
     };
 
-    static constexpr int lowestNote = 33;
-    static constexpr int highestNote = 96;
+    /** @brief The rows the grid holds, which is the piano's range rather than a singer's: an
+               instrument is as likely to be a cello as a soprano.
+    */
+    static constexpr int lowestNote = 21;
+    static constexpr int highestNote = 108;
     static constexpr int numRows = highestNote - lowestNote + 1;
 
     static constexpr float minimumPixelsPerSecond = 20.0f;

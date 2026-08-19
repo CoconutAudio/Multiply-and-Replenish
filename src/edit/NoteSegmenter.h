@@ -26,6 +26,13 @@ struct SegmenterSettings
     /** @brief The window the sung pitch is smoothed over before it is read for steps. */
     double steadyWindowMilliseconds { 50.0 };
 
+    /** @brief The stretch a note's centre is measured over when deciding where the next one starts.
+
+        It has to be shorter than the notes being played, or the centre is a median across several
+        of them and every step is measured against the wrong pitch. Fast playing needs it short.
+    */
+    double centreWindowMilliseconds { 250.0 };
+
     /** @brief How far the pitch must leave a note, in semitones, to be a different note.
 
         Vibrato swings past a semitone and comes back; a new note does not come back. That is what

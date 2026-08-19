@@ -32,7 +32,14 @@ public:
         float melFloor { -15.0f };
         float melCeiling { 5.0f };
         float minimumFrequencyHz { 20.0f };
-        float maximumFrequencyHz { 2000.0f };
+
+        /** @brief The highest fundamental the network was trained to sing.
+
+            Its release states an output range of E2 to D#7, so anything commanded above this is
+            beyond what it was taught rather than merely high. A violin's E7 and a flute's D7 both
+            sit above where a singer ever goes, which is why this is not the vocal range.
+        */
+        float maximumFrequencyHz { 2489.0f };
 
         /** @brief Frames of the recording either side of a span that the network is given. */
         int contextFrames { 24 };

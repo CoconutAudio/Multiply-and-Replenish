@@ -144,7 +144,8 @@ std::vector<Note> segmentNotes (const PitchTrack& melody,
     };
 
     const auto centreFrames = std::max (minimumFrames,
-                                        static_cast<int> (0.25 * static_cast<double> (melody.frameRate)));
+                                        static_cast<int> (settings.centreWindowMilliseconds
+                                                          * static_cast<double> (melody.frameRate) / 1000.0));
 
     for (const auto& run : findRuns (melody, settings))
     {
