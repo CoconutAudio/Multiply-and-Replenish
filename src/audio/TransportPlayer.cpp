@@ -5,6 +5,15 @@
 
 namespace rvctuner
 {
+namespace
+{
+    /** @brief Room for the resampler to read ahead, and for a device that hands out more than it
+               promised in a callback.
+    */
+    constexpr int scratchHeadroom = 64;
+    constexpr double scratchOversize = 4.0;
+}
+
 TransportPlayer::TransportPlayer (juce::AudioDeviceManager& deviceManager)
     : devices (deviceManager)
 {
@@ -27,7 +36,9 @@ void TransportPlayer::setRecording (const juce::AudioBuffer<float>* recording,
     source = recording;
     renderer = scheduler;
     sourceSampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+
     position.store (0.0, std::memory_order_release);
+    seekRequest.store (0, std::memory_order_release);
 }
 
 void TransportPlayer::start()
@@ -37,7 +48,6 @@ void TransportPlayer::start()
     if (source == nullptr || source->getNumSamples() == 0)
         return;
 
-    interpolator.reset();
     playing.store (true, std::memory_order_release);
 }
 
@@ -53,7 +63,11 @@ double TransportPlayer::getPosition() const
 
 void TransportPlayer::setPosition (double seconds)
 {
-    position.store (std::max (0.0, seconds), std::memory_order_release);
+    const auto clamped = std::max (0.0, seconds);
+
+    position.store (clamped, std::memory_order_release);
+    seekRequest.store (static_cast<int> (std::llround (clamped * sourceSampleRate)),
+                       std::memory_order_release);
 }
 
 void TransportPlayer::setLoop (double firstSecond, double lastSecond, bool shouldLoop)
@@ -66,6 +80,14 @@ void TransportPlayer::setLoop (double firstSecond, double lastSecond, bool shoul
 void TransportPlayer::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     deviceSampleRate = device != nullptr ? device->getCurrentSampleRate() : 44100.0;
+
+    const auto blockSize = device != nullptr ? device->getCurrentBufferSizeSamples() : 1024;
+    const auto ratio = sourceSampleRate / std::max (deviceSampleRate, 1.0);
+
+    scratch.assign (static_cast<std::size_t> (static_cast<double> (blockSize) * ratio * scratchOversize)
+                        + scratchHeadroom,
+                    0.0f);
+
     interpolator.reset();
 }
 
@@ -86,6 +108,12 @@ void TransportPlayer::readSource (float* destination, int firstSample, int numSa
     if (numAvailable <= 0)
         return;
 
+    if (renderer != nullptr
+        && monitoring.load (std::memory_order_acquire) == Monitor::corrected
+        && renderer->isReady (firstSample, numAvailable)
+        && renderer->read (destination, firstSample, numAvailable) == numAvailable)
+        return;
+
     const auto numChannels = source->getNumChannels();
 
     for (int channel = 0; channel < numChannels; ++channel)
@@ -95,12 +123,6 @@ void TransportPlayer::readSource (float* destination, int firstSample, int numSa
         for (int sampleIndex = 0; sampleIndex < numAvailable; ++sampleIndex)
             destination[sampleIndex] += channelData[sampleIndex] / static_cast<float> (numChannels);
     }
-
-    if (renderer == nullptr || monitoring.load (std::memory_order_acquire) == Monitor::original)
-        return;
-
-    if (renderer->isReady (firstSample, numAvailable))
-        renderer->read (destination, firstSample, numAvailable);
 }
 
 void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
@@ -116,43 +138,51 @@ void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
 
     const juce::ScopedTryLock lock { sourceLock };
 
-    if (! lock.isLocked() || ! playing.load (std::memory_order_acquire) || source == nullptr)
+    if (! lock.isLocked() || source == nullptr)
         return;
 
-    const auto ratio = sourceSampleRate / deviceSampleRate;
-    const auto numSourceSamples = static_cast<int> (std::ceil (static_cast<double> (numSamples) * ratio)) + 4;
-
-    if (static_cast<int> (scratch.size()) < numSourceSamples)
-        scratch.resize (static_cast<std::size_t> (numSourceSamples));
-
-    auto positionSeconds = position.load (std::memory_order_acquire);
-
-    if (looping.load (std::memory_order_acquire))
+    if (const auto seek = seekRequest.exchange (-1, std::memory_order_acq_rel); seek >= 0)
     {
-        const auto first = loopFirstSecond.load (std::memory_order_acquire);
-        const auto last = loopLastSecond.load (std::memory_order_acquire);
-
-        if (last > first && (positionSeconds < first || positionSeconds >= last))
-        {
-            positionSeconds = first;
-            interpolator.reset();
-        }
+        readPosition = seek;
+        interpolator.reset();
     }
 
-    const auto firstSample = static_cast<int> (std::llround (positionSeconds * sourceSampleRate));
-
-    if (firstSample >= source->getNumSamples())
-    {
-        playing.store (false, std::memory_order_release);
+    if (! playing.load (std::memory_order_acquire))
         return;
-    }
-
-    readSource (scratch.data(), firstSample, numSourceSamples);
 
     auto* left = numOutputChannels > 0 ? outputChannelData[0] : nullptr;
 
     if (left == nullptr)
         return;
+
+    const auto ratio = sourceSampleRate / std::max (deviceSampleRate, 1.0);
+    const auto numWanted = static_cast<int> (std::ceil (static_cast<double> (numSamples) * ratio))
+                         + scratchHeadroom;
+
+    if (static_cast<int> (scratch.size()) < numWanted)
+        return;
+
+    if (looping.load (std::memory_order_acquire))
+    {
+        const auto first = static_cast<int> (std::llround (loopFirstSecond.load (std::memory_order_acquire)
+                                                           * sourceSampleRate));
+        const auto last = static_cast<int> (std::llround (loopLastSecond.load (std::memory_order_acquire)
+                                                          * sourceSampleRate));
+
+        if (last > first && (readPosition < first || readPosition >= last))
+        {
+            readPosition = first;
+            interpolator.reset();
+        }
+    }
+
+    if (readPosition >= source->getNumSamples())
+    {
+        playing.store (false, std::memory_order_release);
+        return;
+    }
+
+    readSource (scratch.data(), readPosition, numWanted);
 
     const auto numUsed = interpolator.process (ratio, scratch.data(), left, numSamples);
 
@@ -160,7 +190,8 @@ void TransportPlayer::audioDeviceIOCallbackWithContext (const float* const*,
         if (outputChannelData[channel] != nullptr)
             std::copy (left, left + numSamples, outputChannelData[channel]);
 
-    position.store (positionSeconds + static_cast<double> (numUsed) / sourceSampleRate,
-                    std::memory_order_release);
+    readPosition += numUsed;
+
+    position.store (static_cast<double> (readPosition) / sourceSampleRate, std::memory_order_release);
 }
 }

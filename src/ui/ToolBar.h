@@ -59,7 +59,6 @@ private:
     juce::ComboBox keyBox;
     juce::ComboBox scaleBox;
     juce::ComboBox detectorBox;
-    juce::ComboBox engineBox;
     juce::ComboBox voiceBox;
 
     juce::Slider correctionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };

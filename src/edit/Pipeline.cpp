@@ -20,6 +20,18 @@ juce::StringArray EngineOptions::getEngineNames()
     return { "PC-NSF-HiFiGAN", "RVC voice" };
 }
 
+namespace
+{
+    /** @brief Threads to give the networks, keeping two cores for playback and the editor. */
+    int chooseNumThreads (int requested)
+    {
+        if (requested > 0)
+            return requested;
+
+        return std::max (1, juce::SystemStats::getNumPhysicalCpus() - 2);
+    }
+}
+
 Pipeline::Pipeline()
     : juce::Thread ("RVCTuner analysis")
 {
@@ -136,7 +148,7 @@ void Pipeline::run()
             return;
         }
 
-        loadedVoice = VoiceModel::load (entry->directory, options.numThreads, loadError);
+        loadedVoice = VoiceModel::load (entry->directory, chooseNumThreads (options.numThreads), loadError);
 
         if (loadedVoice == nullptr)
         {
@@ -149,7 +161,7 @@ void Pipeline::run()
     {
         if (const auto standalone = findModelFile ("rmvpe/rmvpe.onnx"); standalone.existsAsFile())
         {
-            ownedDetector = RmvpeDetector::load (standalone, {}, {}, options.numThreads, loadError);
+            ownedDetector = RmvpeDetector::load (standalone, {}, {}, chooseNumThreads (options.numThreads), loadError);
             detector = ownedDetector.get();
         }
         else if (loadedVoice != nullptr)
@@ -160,7 +172,7 @@ void Pipeline::run()
                  entry != nullptr || ! voices.getEntries().empty())
         {
             const auto& chosen = entry != nullptr ? *entry : voices.getEntries().front();
-            loadedVoice = VoiceModel::load (chosen.directory, options.numThreads, loadError);
+            loadedVoice = VoiceModel::load (chosen.directory, chooseNumThreads (options.numThreads), loadError);
 
             if (loadedVoice != nullptr)
                 detector = &loadedVoice->getPitchDetector();
@@ -180,7 +192,7 @@ void Pipeline::run()
             return;
         }
 
-        ownedDetector = FcpeDetector::load (modelFile, {}, options.numThreads, loadError);
+        ownedDetector = FcpeDetector::load (modelFile, {}, chooseNumThreads (options.numThreads), loadError);
         detector = ownedDetector.get();
     }
 
@@ -243,7 +255,7 @@ void Pipeline::run()
             return;
         }
 
-        auto melEngine = MelSynthesiser::load (modelFile, {}, options.numThreads, loadError);
+        auto melEngine = MelSynthesiser::load (modelFile, {}, chooseNumThreads (options.numThreads), loadError);
 
         if (melEngine == nullptr)
         {

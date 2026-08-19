@@ -146,14 +146,6 @@ target_compile_definitions(rvctuner_engine PUBLIC
 target_compile_definitions(rvctuner_engine PRIVATE
     RVCTUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
 
-juce_add_gui_app(RVCTuner
-    PRODUCT_NAME "RVCTuner"
-    COMPANY_NAME "Pitch Innovations"
-    BUNDLE_ID "com.pitchinnovations.rvctuner"
-    DESCRIPTION "Vocal pitch editor"
-    NEEDS_CURL FALSE
-    NEEDS_WEB_BROWSER FALSE)
-
 set(RVCTUNER_APP_SOURCES
     src/Main.cpp
     src/audio/TransportPlayer.cpp
@@ -165,34 +157,43 @@ set(RVCTUNER_APP_SOURCES
     src/ui/ToolBar.cpp
     src/ui/TransportBar.cpp)
 
-target_sources(RVCTuner PRIVATE ${RVCTUNER_APP_SOURCES})
-target_include_directories(RVCTuner PRIVATE src)
+# One editor, two builds of it: the engine is fixed at build time so that each app is one thing.
+function(rvctuner_add_app target productName isVoiceBuild)
+    juce_add_gui_app(${target}
+        PRODUCT_NAME "${productName}"
+        COMPANY_NAME "Pitch Innovations"
+        BUNDLE_ID "com.pitchinnovations.${target}"
+        DESCRIPTION "Vocal pitch editor"
+        NEEDS_CURL FALSE
+        NEEDS_WEB_BROWSER FALSE)
 
-target_compile_definitions(RVCTuner PUBLIC
-    JUCE_USE_MP3AUDIOFORMAT=1
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_MODAL_LOOPS_PERMITTED=0
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:RVCTuner,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:RVCTuner,JUCE_VERSION>")
+    target_sources(${target} PRIVATE ${RVCTUNER_APP_SOURCES})
+    target_include_directories(${target} PRIVATE src)
 
-target_link_libraries(RVCTuner
-    PRIVATE
-        rvctuner_engine
-        rvctuner_warnings
-        juce::juce_audio_devices
-        juce::juce_audio_utils
-        juce::juce_gui_extra
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags)
+    target_compile_definitions(${target} PUBLIC
+        RVCTUNER_VOICE_BUILD=${isVoiceBuild}
+        JUCE_USE_MP3AUDIOFORMAT=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_MODAL_LOOPS_PERMITTED=0
+        JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:${target},JUCE_PRODUCT_NAME>"
+        JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:${target},JUCE_VERSION>")
 
-rvctuner_apply_strict_warnings(
-    src/dsp/MelFilterBank.cpp
-    src/dsp/SincResampler.cpp
-    src/dsp/Smoothing.cpp
-    src/dsp/ZeroPhaseFilter.cpp)
+    target_link_libraries(${target}
+        PRIVATE
+            rvctuner_engine
+            rvctuner_warnings
+            juce::juce_audio_devices
+            juce::juce_audio_utils
+            juce::juce_gui_extra
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags)
+endfunction()
+
+rvctuner_add_app(RVCTunerMel "RVCTuner Mel" 0)
+rvctuner_add_app(RVCTunerVoice "RVCTuner Voice" 1)
 
 juce_add_console_app(rvctuner_tune
     PRODUCT_NAME "rvctuner-tune")

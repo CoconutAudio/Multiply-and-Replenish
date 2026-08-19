@@ -44,6 +44,9 @@ struct EngineOptions
     float retrievalRatio { 0.75f };
     float consonantProtection { 0.33f };
 
+    /** @brief Threads the networks may use. Zero leaves a couple of cores for the audio thread,
+               which is what stops a render from making playback stutter.
+    */
     int numThreads { 0 };
 
     [[nodiscard]] static juce::StringArray getDetectorNames();

@@ -167,7 +167,7 @@ void RenderScheduler::setKeepingUneditedAudio (bool shouldKeep)
     melodyIsDirty.store (true, std::memory_order_release);
 
     if (synthesiser != nullptr && ! spans.empty() && ! isThreadRunning())
-        startThread (Priority::normal);
+        startThread (Priority::low);
 }
 
 void RenderScheduler::setPriorityFrame (int frameIndex)
@@ -186,7 +186,7 @@ void RenderScheduler::setMelody (std::vector<float> melodyHz, std::vector<float>
     melodyIsDirty.store (true, std::memory_order_release);
 
     if (synthesiser != nullptr && ! spans.empty() && ! isThreadRunning())
-        startThread (Priority::normal);
+        startThread (Priority::low);
 }
 
 std::uint64_t RenderScheduler::hashMelody (int spanIndex) const

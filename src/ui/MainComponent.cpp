@@ -1,5 +1,6 @@
 #include "ui/MainComponent.h"
 
+#include "Product.h"
 #include "edit/MidiExport.h"
 
 #include <atomic>
@@ -19,6 +20,14 @@ MainComponent::MainComponent()
 
     formats.registerBasicFormats();
     devices.initialiseWithDefaultDevices (0, 2);
+
+    // Rendering keeps every core busy, so the device is asked for a block long enough that the
+    // audio thread can miss a scheduling slot without the output breaking up.
+    if (auto setup = devices.getAudioDeviceSetup(); setup.bufferSize < 1024)
+    {
+        setup.bufferSize = 1024;
+        devices.setAudioDeviceSetup (setup, true);
+    }
 
     document.addListener (this);
     pipeline.addListener (this);
@@ -60,10 +69,7 @@ MainComponent::MainComponent()
             scheduler.setPriorityFrame (document.getFrameForTime (seconds));
     };
 
-    editor.setCaption ("Open a vocal take to begin.\n\n"
-                       "Its melody is heard note by note, corrected the way you ask, and sung back "
-                       "by the engine you choose.",
-                       false);
+    editor.setCaption (Product::summary, false);
 
     status = "no recording open";
     setSize (1360, 820);

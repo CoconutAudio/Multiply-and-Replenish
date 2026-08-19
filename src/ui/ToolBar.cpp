@@ -1,5 +1,6 @@
 #include "ui/ToolBar.h"
 
+#include "Product.h"
 #include "ui/PanelLookAndFeel.h"
 
 namespace rvctuner
@@ -61,23 +62,16 @@ ToolBar::ToolBar (EditDocument& documentToEdit, Pipeline& pipelineToRun)
     detectorBox.setSelectedItemIndex (0, juce::dontSendNotification);
     addAndMakeVisible (detectorBox);
 
-    engineBox.addItemList (EngineOptions::getEngineNames(), 1);
-    engineBox.setSelectedItemIndex (0, juce::dontSendNotification);
-    engineBox.onChange = [this]
+    if (Product::isVoiceBuild)
     {
-        voiceBox.setEnabled (engineBox.getSelectedItemIndex()
-                             == static_cast<int> (EngineOptions::Engine::voiceModel));
-    };
-    addAndMakeVisible (engineBox);
+        for (const auto& entry : pipeline.getVoiceLibrary().getEntries())
+            voiceBox.addItem (entry.name, voiceBox.getNumItems() + 1);
 
-    for (const auto& entry : pipeline.getVoiceLibrary().getEntries())
-        voiceBox.addItem (entry.name, voiceBox.getNumItems() + 1);
+        if (voiceBox.getNumItems() > 0)
+            voiceBox.setSelectedItemIndex (0, juce::dontSendNotification);
 
-    if (voiceBox.getNumItems() > 0)
-        voiceBox.setSelectedItemIndex (0, juce::dontSendNotification);
-
-    voiceBox.setEnabled (false);
-    addAndMakeVisible (voiceBox);
+        addAndMakeVisible (voiceBox);
+    }
 
     const auto configureSlider = [this] (juce::Slider& slider, double minimum, double maximum,
                                          double interval, double value, const juce::String& suffix)
@@ -100,12 +94,13 @@ ToolBar::ToolBar (EditDocument& documentToEdit, Pipeline& pipelineToRun)
     labelled = { { &keyBox, "KEY" },
                  { &scaleBox, "SCALE" },
                  { &detectorBox, "PITCH" },
-                 { &engineBox, "ENGINE" },
-                 { &voiceBox, "VOICE" },
                  { &correctionSlider, "CORRECTION" },
                  { &transitionSlider, "TRANSITION" },
                  { &vibratoSlider, "VIBRATO" },
                  { &driftSlider, "DRIFT" } };
+
+    if (Product::isVoiceBuild)
+        labelled.emplace_back (&voiceBox, "VOICE");
 }
 
 ToolBar::~ToolBar()
@@ -132,7 +127,8 @@ EngineOptions ToolBar::getEngineOptions() const
     EngineOptions options;
 
     options.detector = static_cast<EngineOptions::Detector> (std::max (0, detectorBox.getSelectedItemIndex()));
-    options.engine = static_cast<EngineOptions::Engine> (std::max (0, engineBox.getSelectedItemIndex()));
+    options.engine = Product::isVoiceBuild ? EngineOptions::Engine::voiceModel
+                                           : EngineOptions::Engine::melVocoder;
     options.voiceName = voiceBox.getText();
 
     return options;
@@ -209,8 +205,9 @@ void ToolBar::resized()
     place (analyseButton, 84);
     top.removeFromLeft (Metrics::gap);
     place (detectorBox, 92);
-    place (engineBox, 132);
-    place (voiceBox, 104);
+
+    if (Product::isVoiceBuild)
+        place (voiceBox, 116);
 
     bounds.removeFromTop (14);
 

@@ -1,3 +1,4 @@
+#include "Product.h"
 #include "ui/MainComponent.h"
 
 namespace rvctuner
@@ -6,7 +7,7 @@ namespace rvctuner
 class Application final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "RVCTuner"; }
+    const juce::String getApplicationName() override { return Product::name; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
@@ -38,7 +39,7 @@ private:
     {
     public:
         Window()
-            : juce::DocumentWindow ("RVCTuner",
+            : juce::DocumentWindow (Product::name,
                                     PanelLookAndFeel::Palette::ground,
                                     juce::DocumentWindow::allButtons)
         {

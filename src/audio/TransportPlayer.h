@@ -12,6 +12,10 @@ namespace rvctuner
 
     Anything not rendered yet plays as it was sung, so the editor is audible from the moment a file
     is open and simply sharpens into the corrected version as the renderer catches up.
+
+    The audio thread owns the read position and advances it by exactly what the resampler consumed;
+    the position seen from outside is a copy for the playhead to follow, and a seek is a request the
+    audio thread picks up. Nothing here allocates or waits once playback has started.
 */
 class TransportPlayer final : private juce::AudioIODeviceCallback
 {
@@ -64,20 +68,26 @@ private:
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
 
-    /** @brief Fills @p destination from the recording, corrected where the renderer has got to. */
+    /** @brief Fills @p destination from the recording, corrected wherever the whole stretch is
+               rendered, so that a span finishing mid-buffer cannot splice one into the other.
+    */
     void readSource (float* destination, int firstSample, int numSamples);
-
-    juce::AudioDeviceManager& devices;
 
     juce::CriticalSection sourceLock;
     const juce::AudioBuffer<float>* source { nullptr };
     RenderScheduler* renderer { nullptr };
     double sourceSampleRate { 44100.0 };
 
+    juce::AudioDeviceManager& devices;
+
     juce::LagrangeInterpolator interpolator;
     std::vector<float> scratch;
 
+    /** @brief The next sample to read, owned by the audio thread. */
+    int readPosition { 0 };
+
     std::atomic<bool> playing { false };
+    std::atomic<int> seekRequest { -1 };
     std::atomic<double> position { 0.0 };
     std::atomic<Monitor> monitoring { Monitor::corrected };
     std::atomic<bool> looping { false };

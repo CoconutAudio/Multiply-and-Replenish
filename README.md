@@ -3,8 +3,16 @@
 A vocal pitch editor, in the shape of Newtone: open a take, see the melody as notes on a piano
 roll, move them, and hear the take sung back at the pitches you put them on.
 
+It builds as **two apps**. They share an editor and differ in what sings:
+
+| App | Engine | Needs |
+| --- | --- | --- |
+| **RVCTuner Mel** | PC-NSF-HiFiGAN, a mel vocoder | nothing but the vocoder; keeps whichever voice was recorded |
+| **RVCTuner Voice** | the RVC pipeline | a voice model, which is the voice that comes out |
+
 ```bash
-rvctuner take.wav
+./build/RVCTunerMel_artefacts/RelWithDebInfo/"RVCTuner Mel" take.wav
+./build/RVCTunerVoice_artefacts/RelWithDebInfo/"RVCTuner Voice" take.wav
 ```
 
 ---
@@ -33,20 +41,23 @@ nearest the playhead first, so an edit is audible about as fast as you can make 
 
 ## The two engines
 
-**PC-NSF-HiFiGAN** is the default. It is a vocoder conditioned on a mel spectrogram and a
+**PC-NSF-HiFiGAN**, which RVCTuner Mel runs, is a vocoder conditioned on a mel spectrogram and a
 fundamental *separately*: the mel carries the timbre and the words, the fundamental carries the
 tune, and it was trained on pairs where the two disagree. It re-sings whoever was recorded and
 needs no model of them, which is the whole point for a corrector — the voice that comes out is the
 voice that went in.
 
-**An RVC voice** is the other option. Its content encoder strips the pitch out of the recording and
+**An RVC voice**, which RVCTuner Voice runs, is the other engine. Its content encoder strips the pitch out of the recording and
 keeps everything else; its vocoder puts the edited melody back in. The vocoder's weights *are* a
 voice, so this engine is a pitch corrector only when the voice it was trained on is the voice in
 the recording — one of your own, trained with the sibling [RTVoice](https://github.com/vivekvjyn/RTVoice)
-project. Point it at anyone else's model and it is a voice converter, not a tuner.
+project. Point it at anyone else's model and it is a voice converter, not a tuner. The render is held to the
+loudness of the recording frame by frame, because the vocoder otherwise sings at the loudness of
+whatever it was trained on.
 
-Both engines are offline and run on the CPU. Neither is usable for live monitoring: the detectors
-see the future, and the correction is defined over whole notes.
+Both engines are offline and run on the CPU, and leave two cores free so that rendering cannot
+stutter playback. Neither is usable for live monitoring: the detectors see the future, and the
+correction is defined over whole notes.
 
 ## Why a corrected note still sounds sung
 
@@ -130,7 +141,7 @@ check a take before opening it.
 ## Layout
 
 ```
-CMakeLists.txt        one target for the engine, one for the app, one for the tests
+CMakeLists.txt        one target for the engine, one per app, one for the tests
 src/
   Main.cpp            the application
   common/             the matrix format the exporters write
@@ -146,7 +157,9 @@ docs/                 Doxygen
 ```
 
 `src/model/PitchDetector.h` and `src/model/Synthesiser.h` are the two interfaces everything else is
-written against, which is what makes the algorithms a choice rather than a rewrite.
+written against, which is what makes the algorithms a choice rather than a rewrite. `src/Product.h`
+is the only thing that differs between the two apps: which engine the build runs, and what it calls
+itself.
 
 ## What is measured
 
@@ -188,6 +201,24 @@ The suite covers what the bugs were actually in: the filter banks against the ex
 resampler and the zero-phase filter against SciPy, note segmentation against melodies with a
 vibrato deep enough to be mistaken for a run of notes, the correction curve's separation of centre
 from shake, and every edit the document exposes, including undo.
+
+## PitchNet, for reference
+
+[PitchNet](https://github.com/SessionLoops/PitchNet) is the editor this one takes its engine idea
+from, and a checkout of it lives beside this repository for comparison. Two changes are needed to
+build it with GCC on Linux, both committed there: its source globs hand `*.mm` files to a compiler
+that cannot read Objective-C++, and `jmax<int64>` resolves into an incomplete SIMD specialisation.
+
+```bash
+cd ../PitchNet
+git submodule update --init --depth 1 third_party/JUCE third_party/r8brain-free-src
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target PitchNet
+./build/PitchNet_artefacts/Release/PitchNet
+```
+
+It is AGPL-3.0 and stays a separate checkout for that reason; nothing here is derived from its
+source.
 
 ## Provenance
 
