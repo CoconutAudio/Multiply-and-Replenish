@@ -54,6 +54,7 @@ private:
     juce::TextButton undoButton { "UNDO" };
     juce::TextButton redoButton { "REDO" };
     juce::TextButton analyseButton { "ANALYSE" };
+    juce::TextButton retuneButton { "RETUNE ALL" };
 
     juce::TextButton selectTool { "SELECT" };
     juce::TextButton drawTool { "DRAW" };

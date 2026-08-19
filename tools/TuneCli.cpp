@@ -176,7 +176,12 @@ int main (int argc, char** argv)
     auto notes = segmentNotes (melody, scale, arguments->segmenter);
 
     for (auto& note : notes)
+    {
         note.targetNote += juce::roundToInt (arguments->shiftSemitones);
+
+        // A note opens as it was played; correcting a whole file is what this tool is for.
+        note.correction = 1.0f;
+    }
 
     auto inTune = 0;
     auto totalError = 0.0;

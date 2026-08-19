@@ -18,8 +18,10 @@ ToolBar::ToolBar (EditDocument& documentToEdit)
     document.addListener (this);
 
     for (auto* button : { &openButton, &exportButton, &undoButton, &redoButton, &analyseButton,
-                          &selectTool, &drawTool, &splitTool, &joinTool })
+                          &retuneButton, &selectTool, &drawTool, &splitTool, &joinTool })
         addAndMakeVisible (button);
+
+    retuneButton.onClick = [this] { document.retuneAll(); };
 
     openButton.onClick = [this] { if (onOpen != nullptr) onOpen(); };
     exportButton.onClick = [this] { if (onExport != nullptr) onExport(); };
@@ -195,6 +197,7 @@ void ToolBar::resized()
     place (joinTool, 56);
 
     place (analyseButton, 84);
+    place (retuneButton, 96);
     top.removeFromLeft (Metrics::gap);
     place (detectorBox, 92);
 

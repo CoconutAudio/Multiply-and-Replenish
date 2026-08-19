@@ -238,8 +238,29 @@ void EditDocument::modifyNotes (const std::vector<int>& indices,
 void EditDocument::nudgeNotes (const std::vector<int>& indices, int semitones)
 {
     modifyNotes (indices,
-                 [semitones] (Note& note) { note.targetNote += semitones; },
+                 [semitones] (Note& note)
+                 {
+                     note.targetNote += semitones;
+
+                     // Dragging a note somewhere is the instruction to put it there.
+                     note.isEnabled = true;
+                     note.correction = 1.0f;
+                 },
                  semitones > 0 ? "move up" : "move down");
+}
+
+void EditDocument::retuneAll()
+{
+    auto state = getState();
+
+    for (auto& note : state.notes)
+    {
+        note.targetNote = state.scale.snap (note.sungPitch);
+        note.isEnabled = true;
+        note.correction = 1.0f;
+    }
+
+    applyState (std::move (state), "retune everything");
 }
 
 void EditDocument::splitNote (int index, int frameIndex)

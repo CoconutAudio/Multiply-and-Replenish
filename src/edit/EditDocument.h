@@ -87,6 +87,9 @@ public:
     /** @brief Moves the selected notes, or one note, by whole semitones. */
     void nudgeNotes (const std::vector<int>& indices, int semitones);
 
+    /** @brief Pulls every note onto the scale at once, for a take that wants correcting wholesale. */
+    void retuneAll();
+
     /** @brief Applies a change to every named note through a function of the note. */
     void modifyNotes (const std::vector<int>& indices, std::function<void (Note&)> change,
                       const juce::String& actionName);

@@ -90,10 +90,26 @@ TEST (NoteSegmenter, TargetsFollowTheScale)
     EXPECT_EQ (notes[0].targetNote, 60);
 }
 
-TEST (CorrectionCurve, FullCorrectionLandsOnTheTarget)
+TEST (CorrectionCurve, AnalysingATakeLeavesItAsPlayed)
 {
     const auto melody = makeMelody ({ 59.7 }, 100);
     const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+
+    const auto corrected = correctMelody (melody, notes, {}, {});
+
+    // Nothing has been asked for yet, so nothing moves and the renderer can pass the take through.
+    ASSERT_EQ (corrected.correctedSemitones.size(), melody.fundamentalFrequencyHz.size());
+    EXPECT_NEAR (corrected.correctedSemitones[50], 59.7, 0.02);
+    EXPECT_NEAR (corrected.shiftSemitones[50], 0.0, 0.02);
+}
+
+TEST (CorrectionCurve, FullCorrectionLandsOnTheTarget)
+{
+    const auto melody = makeMelody ({ 59.7 }, 100);
+    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+
+    for (auto& note : notes)
+        note.correction = 1.0f;
 
     const auto corrected = correctMelody (melody, notes, {}, {});
 
@@ -126,7 +142,10 @@ TEST (CorrectionCurve, VibratoSurvivesCorrection)
             toFrequency (59.6 + 0.4 * std::sin (2.0 * 3.14159265 * 5.5 * seconds));
     }
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+
+    for (auto& note : notes)
+        note.correction = 1.0f;
     const auto corrected = correctMelody (melody, notes, {}, {});
 
     const auto depth = [] (const std::vector<float>& curve)
@@ -157,7 +176,10 @@ TEST (CorrectionCurve, VibratoCanBeScaledAway)
             toFrequency (60.0 + 0.5 * std::sin (2.0 * 3.14159265 * 5.5 * seconds));
     }
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+
+    for (auto& note : notes)
+        note.correction = 1.0f;
 
     CorrectionSettings settings;
     settings.vibrato = 0.0f;

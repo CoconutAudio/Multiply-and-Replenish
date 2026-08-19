@@ -20,8 +20,13 @@ struct Note
     /** @brief The note the correction pulls towards. */
     int targetNote { 60 };
 
-    /** @brief How far towards @ref targetNote the note is pulled: 0 as sung, 1 fully in tune. */
-    float correction { 1.0f };
+    /** @brief How far towards @ref targetNote the note is pulled: 0 as sung, 1 fully in tune.
+
+        A note opens as it was played. Analysing a take should not change it, only describe it —
+        so nothing is re-synthesised until the note is moved or retuned, and until then what plays
+        is the recording itself.
+    */
+    float correction { 0.0f };
 
     /** @brief Scales the 4 to 9 Hz modulation within the note; 1 keeps the vibrato as sung. */
     float vibrato { 1.0f };
