@@ -5,7 +5,7 @@
 A vocal pitch editor, in the shape of Newtone: open a take, see the melody as notes on a piano
 roll, move them, and hear the take sung back at the pitches you put them on.
 
-It builds as a standalone app and as an ARA plug-in — VST3 and LV2 everywhere, AU on macOS.
+A standalone app, plus a command line for batch work.
 
 ```bash
 Tuner take.wav
@@ -85,14 +85,6 @@ The dials along the top act on every note at once; the ones along the bottom act
 `Shortest note` decides how readily the melody is cut up — raise it on a legato take with a wide
 vibrato, lower it on something fast.
 
-## The plug-in
-
-A pitch editor needs the whole take before it can hear a melody in it, which is what **ARA**
-provides: the host hands over each region up front, the analysis runs once, and the notes are saved
-with the session. Reaper, Studio One, Logic and Cubase can load it that way. In a host that does not
-speak ARA the plug-in passes its audio through and says so, because there is nothing useful it can
-do a block at a time — use the standalone app instead.
-
 ## Requirements
 
 - Linux, macOS or Windows
@@ -105,14 +97,12 @@ ONNX Runtime is found if it is installed, and downloaded for the platform if it 
 ```bash
 git clone https://github.com/vivekvjyn/Tuner.git
 cd Tuner
-git submodule update --init --depth 1 libs/JUCE libs/googletest libs/ARA_SDK
-git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
+git submodule update --init --depth 1 libs/JUCE libs/googletest
 
 cmake -B build
 cmake --build build
 ```
 
-The ARA SDK is only needed for the plug-in; without it the plug-in still builds, without ARA.
 To build against an ONNX Runtime of your own:
 
 ```bash
@@ -138,7 +128,7 @@ check a take before opening it.
 ## Layout
 
 ```
-CMakeLists.txt        one target for the engine, one for the app, one for the plug-in, one for the tests
+CMakeLists.txt        one target for the engine, one for the app, one for the tests
 cmake/                finding or fetching ONNX Runtime
 src/
   Main.cpp            the application
@@ -147,7 +137,6 @@ src/
   edit/               the document, the notes, the correction, the renderer, the pipeline
   audio/              playback
   ui/                 the editor and its panels
-  plugin/             the ARA plug-in: document controller, modification, playback renderer
 tools/TuneCli.cpp     the command line
 tests/                the GoogleTest suite
 res/models/           where the networks go, and what they are
@@ -186,8 +175,8 @@ B6, where no singer ever trained it. Instruments above that range need a vocoder
   in time; the timing you sang is the timing you get.
 - **No formant control.** The engine holds the formants where they were sung, which is right for
   correction and wrong if you wanted to change the character of the voice.
-- **The standalone app saves nothing but the audio.** Under ARA the edits belong to the session and
-  are stored with it; the app has no project format, so re-opening a file means re-analysing it.
+- **Nothing is saved but the audio.** There is no project format, so re-opening a file means
+  re-analysing it — a few seconds, but the edits are gone.
 - **The detectors are monophonic.** Two voices at once, or a vocal over a backing track, will not
   segment sensibly. Separate them first.
 
@@ -205,7 +194,7 @@ resampler and the zero-phase filter against SciPy, note segmentation against mel
 vibrato deep enough to be mistaken for a run of notes, the correction curve's separation of centre
 from shake, and every edit the document exposes, including undo.
 
-CI builds all three platforms and uploads the app, the plug-ins and the command line for each.
+CI builds all three platforms and uploads the app and the command line for each.
 
 ## Provenance and licences
 

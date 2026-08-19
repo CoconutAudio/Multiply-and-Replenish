@@ -21,13 +21,10 @@ jobs:
         include:
           - name: Linux
             os: ubuntu-latest
-            formats: Standalone, VST3, LV2
           - name: macOS
             os: macos-latest
-            formats: Standalone, VST3, AU
           - name: Windows
             os: windows-latest
-            formats: Standalone, VST3
 
     steps:
       - uses: actions/checkout@v4
@@ -36,9 +33,7 @@ jobs:
 
       - name: Check out the submodules we need
         shell: bash
-        run: |
-          git submodule update --init --depth 1 libs/JUCE libs/googletest libs/ARA_SDK
-          git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
+        run: git submodule update --init --depth 1 libs/JUCE libs/googletest
 
       # JUCE needs these to draw a window and open an audio device on Linux.
       - name: Install the Linux dependencies
@@ -76,8 +71,4 @@ jobs:
           if-no-files-found: error
           path: |
             build/Tuner_artefacts/RelWithDebInfo/Tuner*
-            build/TunerPlugin_artefacts/RelWithDebInfo/VST3/**
-            build/TunerPlugin_artefacts/RelWithDebInfo/AU/**
-            build/TunerPlugin_artefacts/RelWithDebInfo/LV2/**
-            build/TunerPlugin_artefacts/RelWithDebInfo/Standalone/**
-            build/tuner_tune_artefacts/RelWithDebInfo/tuner-tune*
+            build/tuner_tune_artefacts/RelWithDebInfo/tuner*

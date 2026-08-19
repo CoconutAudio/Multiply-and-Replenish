@@ -17,7 +17,6 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(TUNER_BUILD_TESTS "Build the unit tests" ON)
-option(TUNER_BUILD_PLUGIN "Build the ARA plug-in" ON)
 
 set(TUNER_ONNXRUNTIME_ROOT "" CACHE PATH
     "ONNX Runtime installation to build against, instead of the system one or a downloaded release")
@@ -34,22 +33,6 @@ foreach(submodule JUCE googletest)
 endforeach()
 
 add_subdirectory(libs/JUCE)
-
-set(TUNER_ARA_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/ARA_SDK")
-
-if(TUNER_BUILD_PLUGIN AND EXISTS "${TUNER_ARA_SDK_PATH}/ARA_Library/PlugIn/ARAPlug.h")
-    juce_set_ara_sdk_path("${TUNER_ARA_SDK_PATH}")
-    set(TUNER_ARA_AVAILABLE TRUE)
-    message(STATUS "ARA SDK: ${TUNER_ARA_SDK_PATH}")
-else()
-    set(TUNER_ARA_AVAILABLE FALSE)
-
-    if(TUNER_BUILD_PLUGIN)
-        message(STATUS "ARA SDK not checked out; the plug-in will build without ARA. Run:\n"
-                       "    git submodule update --init --depth 1 libs/ARA_SDK\n"
-                       "    git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library")
-    endif()
-endif()
 
 add_library(tuner_warnings INTERFACE)
 
@@ -176,70 +159,6 @@ target_link_libraries(Tuner
         juce::juce_recommended_lto_flags)
 
 tuner_copy_onnxruntime_beside(Tuner)
-
-if(TUNER_BUILD_PLUGIN)
-    set(TUNER_PLUGIN_FORMATS VST3 LV2 Standalone)
-
-    if(APPLE)
-        list(APPEND TUNER_PLUGIN_FORMATS AU)
-    endif()
-
-    juce_add_plugin(TunerPlugin
-        PLUGIN_MANUFACTURER_CODE Pinn
-        PLUGIN_CODE Tunr
-        MANUFACTURER_NAME "Pitch Innovations"
-        COMPANY_NAME "Pitch Innovations"
-        BUNDLE_ID "com.pitchinnovations.tunerplugin"
-        PRODUCT_NAME "Tuner"
-        DESCRIPTION "Vocal pitch editor"
-
-        FORMATS ${TUNER_PLUGIN_FORMATS}
-        LV2URI "https://github.com/vivekvjyn/Tuner"
-        IS_ARA_EFFECT ${TUNER_ARA_AVAILABLE}
-        ARA_FACTORY_ID "\"com.pitchinnovations.tuner.arafactory.0.2.0\""
-        ARA_DOCUMENT_ARCHIVE_ID "\"com.pitchinnovations.tuner.aradocumentarchive.1\""
-        ARA_ANALYSIS_TYPES kARAContentTypeNotes
-
-        IS_SYNTH FALSE
-        NEEDS_MIDI_INPUT FALSE
-        NEEDS_MIDI_OUTPUT FALSE
-        IS_MIDI_EFFECT FALSE
-        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-        COPY_PLUGIN_AFTER_BUILD FALSE
-        VST3_AUTO_MANIFEST FALSE)
-
-    target_sources(TunerPlugin PRIVATE
-        src/plugin/Processor.cpp
-        src/plugin/Editor.cpp
-        src/plugin/DocumentController.cpp
-        src/plugin/PlaybackRenderer.cpp
-        src/plugin/Modification.cpp)
-
-    target_include_directories(TunerPlugin PRIVATE src)
-
-    target_compile_definitions(TunerPlugin PUBLIC
-        JUCE_USE_MP3AUDIOFORMAT=1
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0
-        JUCE_MODAL_LOOPS_PERMITTED=0
-        TUNER_ARA_AVAILABLE=$<BOOL:${TUNER_ARA_AVAILABLE}>)
-
-    target_link_libraries(TunerPlugin
-        PRIVATE
-            tuner_ui
-            tuner_warnings
-        PUBLIC
-            juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags)
-
-    foreach(format ${TUNER_PLUGIN_FORMATS})
-        if(TARGET TunerPlugin_${format})
-            tuner_copy_onnxruntime_beside(TunerPlugin_${format})
-        endif()
-    endforeach()
-endif()
 
 juce_add_console_app(tuner_tune
     PRODUCT_NAME "tuner-tune")

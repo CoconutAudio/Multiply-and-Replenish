@@ -38,7 +38,6 @@ includes are path-qualified so a file's dependencies name their layer.
 | `src/edit/` | tuner::EditDocument, tuner::segmentNotes, tuner::correctMelody, tuner::RenderScheduler, tuner::Pipeline |
 | `src/audio/` | tuner::TransportPlayer |
 | `src/ui/` | tuner::MainComponent, tuner::EditorView, tuner::NoteGrid and the panels |
-| `src/plugin/` | tuner::DocumentController, tuner::Modification, tuner::PlaybackRenderer, the ARA plug-in |
 
 @section threads Which thread does what
 
