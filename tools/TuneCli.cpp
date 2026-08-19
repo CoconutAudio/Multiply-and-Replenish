@@ -3,6 +3,7 @@
 #include "edit/NoteSegmenter.h"
 #include "model/FcpeDetector.h"
 #include "model/MelSynthesiser.h"
+#include "model/GameSegmenter.h"
 #include "model/ModelLibrary.h"
 #include "model/RmvpeDetector.h"
 
@@ -24,9 +25,10 @@ struct Arguments
     juce::String detector { "rmvpe" };
     juce::String key { "C" };
     juce::String scale { "chromatic" };
+    juce::String segmenter { "dsp" };
     double shiftSemitones { 0.0 };
     CorrectionSettings correction;
-    SegmenterSettings segmenter;
+    SegmenterSettings segmenterSettings;
 };
 
 void report (const juce::String& message)
@@ -54,6 +56,8 @@ std::optional<Arguments> parse (int argc, char** argv)
             arguments.shiftSemitones = next().getDoubleValue();
         else if (argument == "--key")
             arguments.key = next();
+        else if (argument == "--segmenter")
+            arguments.segmenter = next().toLowerCase();
         else if (argument == "--scale")
             arguments.scale = next().toLowerCase();
         else if (argument == "--correction")
@@ -63,9 +67,9 @@ std::optional<Arguments> parse (int argc, char** argv)
         else if (argument == "--drift")
             arguments.correction.drift = static_cast<float> (next().getDoubleValue());
         else if (argument == "--min-note")
-            arguments.segmenter.minimumNoteMilliseconds = next().getDoubleValue();
+            arguments.segmenterSettings.minimumNoteMilliseconds = next().getDoubleValue();
         else if (argument == "--split")
-            arguments.segmenter.splitSemitones = next().getDoubleValue();
+            arguments.segmenterSettings.splitSemitones = next().getDoubleValue();
         else if (argument == "--transition")
             arguments.correction.transitionMilliseconds = static_cast<float> (next().getDoubleValue());
         else if (argument.startsWith ("--"))
@@ -92,6 +96,7 @@ int main (int argc, char** argv)
     {
         report ("usage: tuner-tune <input.wav> <output.wav> [--detector fcpe|rmvpe] [--models <dir>]");
         report ("                     [--key C] [--scale chromatic|major|minor|...]");
+        report ("                     [--segmenter dsp|game]");
         report ("                     [--correction 0..1] [--vibrato 0..2] [--drift 0..2]");
         report ("                     [--transition <ms>] [--shift <semitones>]");
         return 1;
@@ -173,7 +178,49 @@ int main (int argc, char** argv)
 
     const Scale scale { scaleType, std::max (0, Scale::getPitchClassNames().indexOf (arguments->key)) };
 
-    auto notes = segmentNotes (melody, scale, arguments->segmenter);
+    std::vector<Note> notes;
+
+    if (arguments->segmenter == "game")
+    {
+        auto game = GameSegmenter::load (arguments->modelDirectory.getChildFile ("pitchnet/GAME"),
+                                         {}, 0, error);
+
+        if (game == nullptr)
+        {
+            report ("note segmenter: " + error);
+            return 1;
+        }
+
+        const auto segments = game->segment (mono.data(), numSamples, sampleRate,
+                                             melody.frameRate, error);
+
+        if (segments.empty())
+        {
+            report ("note segmenter: " + (error.isNotEmpty() ? error : juce::String ("no notes found")));
+            return 1;
+        }
+
+        std::vector<int> firstFrames;
+        std::vector<int> lastFrames;
+
+        for (const auto& segment : segments)
+        {
+            if (segment.isRest)
+                continue;
+
+            firstFrames.push_back (segment.firstFrame);
+            lastFrames.push_back (segment.lastFrame);
+        }
+
+        report ("GAME: " + juce::String (segments.size()) + " segments, "
+                + juce::String (firstFrames.size()) + " of them notes");
+
+        notes = notesFromSegments (firstFrames, lastFrames, melody, scale, arguments->segmenterSettings);
+    }
+    else
+    {
+        notes = segmentNotes (melody, scale, arguments->segmenterSettings);
+    }
 
     for (auto& note : notes)
     {

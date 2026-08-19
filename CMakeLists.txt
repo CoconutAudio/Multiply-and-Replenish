@@ -79,6 +79,7 @@ set(TUNER_ENGINE_SOURCES
     src/edit/RenderScheduler.cpp
     src/edit/Scale.cpp
     src/model/FcpeDetector.cpp
+    src/model/GameSegmenter.cpp
     src/model/MelSynthesiser.cpp
     src/model/ModelLibrary.cpp
     src/model/OnnxSession.cpp

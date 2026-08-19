@@ -56,6 +56,24 @@ struct SegmenterSettings
                                               const Scale& scale,
                                               const SegmenterSettings& settings = {});
 
+/** @brief Turns the segments a model found into notes, measured against the melody.
+
+    The model says where the notes are and roughly what they are; the pitch each note is corrected
+    from still comes from the melody, because that is what the correction curve is written against.
+
+    @param firstFrames  The first frame of each segment.
+    @param lastFrames   One past the last frame of each segment.
+    @param melody       The melody as estimated.
+    @param scale        The scale each note's target is snapped to.
+    @param settings     Supplies the fraction of the note ignored at each edge.
+    @return The notes, in time order.
+*/
+[[nodiscard]] std::vector<Note> notesFromSegments (const std::vector<int>& firstFrames,
+                                                   const std::vector<int>& lastFrames,
+                                                   const PitchTrack& melody,
+                                                   const Scale& scale,
+                                                   const SegmenterSettings& settings = {});
+
 /** @brief Measures a note's centre and target from the melody underneath it.
     @param note      The note to measure; its frame span is read, its pitch written.
     @param melody    The melody as estimated.

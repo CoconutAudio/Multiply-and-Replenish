@@ -43,7 +43,7 @@ private:
     void melodyChanged() override;
 
     void pipelineProgressed (float fraction, const juce::String& stage) override;
-    void melodyEstimated (PitchTrack melody) override;
+    void melodyEstimated (PitchTrack melody, std::vector<Note> notes) override;
     void pipelineFinished (std::shared_ptr<Synthesiser> synthesiser, const juce::String& error) override;
 
     void renderChanged() override;

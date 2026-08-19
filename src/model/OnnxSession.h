@@ -20,16 +20,29 @@ public:
         const char* name { nullptr };
         const float* floatData { nullptr };
         const std::int64_t* intData { nullptr };
+        const bool* boolData { nullptr };
         std::vector<std::int64_t> shape;
 
         static TensorView floats (const char* tensorName, const float* values, std::vector<std::int64_t> tensorShape)
         {
-            return { tensorName, values, nullptr, std::move (tensorShape) };
+            return { tensorName, values, nullptr, nullptr, std::move (tensorShape) };
         }
 
         static TensorView integers (const char* tensorName, const std::int64_t* values, std::vector<std::int64_t> tensorShape)
         {
-            return { tensorName, nullptr, values, std::move (tensorShape) };
+            return { tensorName, nullptr, values, nullptr, std::move (tensorShape) };
+        }
+
+        /** @brief A boolean tensor, which the note segmenter passes masks and boundaries in. */
+        static TensorView booleans (const char* tensorName, const bool* values, std::vector<std::int64_t> tensorShape)
+        {
+            return { tensorName, nullptr, nullptr, values, std::move (tensorShape) };
+        }
+
+        /** @brief A scalar, which ONNX writes as a tensor of rank zero. */
+        static TensorView scalar (const char* tensorName, const float* value)
+        {
+            return { tensorName, value, nullptr, nullptr, {} };
         }
     };
 

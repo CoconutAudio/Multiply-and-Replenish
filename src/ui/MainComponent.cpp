@@ -162,9 +162,9 @@ void MainComponent::pipelineProgressed (float fraction, const juce::String& stag
     updateStatus();
 }
 
-void MainComponent::melodyEstimated (PitchTrack melody)
+void MainComponent::melodyEstimated (PitchTrack melody, std::vector<Note> notes)
 {
-    document.setMelody (std::move (melody));
+    document.setMelody (std::move (melody), std::move (notes));
 
     editor.setCaption ({}, false);
     editor.scrollToSinging();

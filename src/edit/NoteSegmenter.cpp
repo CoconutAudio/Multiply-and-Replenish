@@ -98,6 +98,42 @@ void measureNote (Note& note,
     note.targetNote = scale.snap (note.sungPitch);
 }
 
+std::vector<Note> notesFromSegments (const std::vector<int>& firstFrames,
+                                     const std::vector<int>& lastFrames,
+                                     const PitchTrack& melody,
+                                     const Scale& scale,
+                                     const SegmenterSettings& settings)
+{
+    std::vector<Note> notes;
+    notes.reserve (firstFrames.size());
+
+    const auto numFrames = melody.getNumFrames();
+
+    for (std::size_t index = 0; index < firstFrames.size() && index < lastFrames.size(); ++index)
+    {
+        Note note;
+        note.firstFrame = std::clamp (firstFrames[index], 0, numFrames);
+        note.lastFrame = std::clamp (lastFrames[index], 0, numFrames);
+
+        if (note.getNumFrames() <= 0)
+            continue;
+
+        auto isSung = false;
+
+        for (int frameIndex = note.firstFrame; frameIndex < note.lastFrame && ! isSung; ++frameIndex)
+            isSung = melody.isVoiced (frameIndex);
+
+        // A stretch the melody heard nothing in is a rest, whatever the segmenter called it.
+        if (! isSung)
+            continue;
+
+        measureNote (note, melody, scale, settings);
+        notes.push_back (note);
+    }
+
+    return notes;
+}
+
 std::vector<Note> segmentNotes (const PitchTrack& melody,
                                 const Scale& scale,
                                 const SegmenterSettings& settings)

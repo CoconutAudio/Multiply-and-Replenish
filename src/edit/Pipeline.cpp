@@ -1,7 +1,9 @@
 #include "edit/Pipeline.h"
 
 #include "dsp/SincResampler.h"
+#include "edit/NoteSegmenter.h"
 #include "model/FcpeDetector.h"
+#include "model/GameSegmenter.h"
 #include "model/MelSynthesiser.h"
 #include "model/RmvpeDetector.h"
 
@@ -165,6 +167,39 @@ void Pipeline::run()
         return;
     }
 
+    // GAME hears a re-attacked note that a rule about pitch excursions cannot; without it the
+    // melody is cut up by that rule instead.
+    notes.clear();
+
+    if (const auto gameDirectory = models.find ("pitchnet/GAME/encoder.onnx").getParentDirectory();
+        gameDirectory.isDirectory())
+    {
+        report (0.2f, "finding the notes");
+
+        juce::String segmenterError;
+
+        if (auto game = GameSegmenter::load (gameDirectory, {}, chooseNumThreads (options.numThreads),
+                                             segmenterError))
+        {
+            const auto segments = game->segment (mono.data(), static_cast<int> (mono.size()),
+                                                 sampleRate, melody.frameRate, segmenterError);
+
+            std::vector<int> firstFrames;
+            std::vector<int> lastFrames;
+
+            for (const auto& segment : segments)
+            {
+                if (segment.isRest)
+                    continue;
+
+                firstFrames.push_back (segment.firstFrame);
+                lastFrames.push_back (segment.lastFrame);
+            }
+
+            notes = notesFromSegments (firstFrames, lastFrames, melody, Scale {}, {});
+        }
+    }
+
     {
         const juce::ScopedLock lock { stateLock };
         hasMelody = true;
@@ -249,7 +284,12 @@ void Pipeline::handleAsyncUpdate()
     if (melodyIsNew)
     {
         auto heard = melody;
-        listeners.call ([&heard] (Listener& listener) { listener.melodyEstimated (heard); });
+        auto found = notes;
+
+        listeners.call ([&heard, &found] (Listener& listener)
+        {
+            listener.melodyEstimated (heard, found);
+        });
     }
 
     if (finished)

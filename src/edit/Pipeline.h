@@ -1,5 +1,6 @@
 #pragma once
 
+#include "edit/Note.h"
 #include "model/ModelLibrary.h"
 #include "model/Synthesiser.h"
 
@@ -52,8 +53,10 @@ public:
         /** @brief Progress through the current stage, named for the user. */
         virtual void pipelineProgressed (float fraction, const juce::String& stage) = 0;
 
-        /** @brief The melody has been heard, and can be edited while the vocoder loads. */
-        virtual void melodyEstimated (PitchTrack melody) = 0;
+        /** @brief The melody has been heard and cut into notes, and can be edited while the
+                   vocoder is still reading the recording.
+        */
+        virtual void melodyEstimated (PitchTrack melody, std::vector<Note> notes) = 0;
 
         /** @brief The vocoder is ready to render, or the run failed. */
         virtual void pipelineFinished (std::shared_ptr<Synthesiser> synthesiser, const juce::String& error) = 0;
@@ -86,6 +89,7 @@ private:
 
     std::shared_ptr<Synthesiser> synthesiser;
     PitchTrack melody;
+    std::vector<Note> notes;
 
     ModelLibrary models;
 

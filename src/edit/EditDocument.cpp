@@ -92,12 +92,13 @@ void EditDocument::setRecording (juce::AudioBuffer<float> audio, double rate, co
     sendChangeMessage();
 }
 
-void EditDocument::setMelody (PitchTrack melody)
+void EditDocument::setMelody (PitchTrack melody, std::vector<Note> foundNotes)
 {
     sung = std::move (melody);
 
     drawn.assign (static_cast<std::size_t> (sung.getNumFrames()), 0.0f);
-    notes = segmentNotes (sung, scale, segmenter);
+    analysedNotes = foundNotes.empty() ? segmentNotes (sung, scale, segmenter) : std::move (foundNotes);
+    notes = analysedNotes;
     selection.clear();
     undoManager.clearUndoHistory();
 
@@ -336,7 +337,7 @@ void EditDocument::removeNotes (const std::vector<int>& indices)
 void EditDocument::resetNotes()
 {
     auto state = getState();
-    state.notes = segmentNotes (sung, scale, segmenter);
+    state.notes = analysedNotes.empty() ? segmentNotes (sung, scale, segmenter) : analysedNotes;
     state.drawn.assign (static_cast<std::size_t> (sung.getNumFrames()), 0.0f);
 
     deselectAll();

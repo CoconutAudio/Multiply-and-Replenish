@@ -24,7 +24,7 @@ it, but each channel is rendered on its own, so a stereo take comes back stereo.
 recording
     │
     ├─ pitch detection ── a fundamental every 10 ms          (FCPE, or RMVPE)
-    ├─ segmentation ───── one note per sung pitch
+    ├─ segmentation ───── one note per sung pitch            (GAME, or by rule)
     ├─ editing ────────── the piano roll: move, split, join, draw, retune
     ├─ correction ─────── a shift per frame, note by note
     └─ synthesis ──────── the take, re-sung                  (PC-NSF-HiFiGAN)

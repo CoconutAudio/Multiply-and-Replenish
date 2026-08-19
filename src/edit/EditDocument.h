@@ -44,8 +44,11 @@ public:
     /** @brief Opens a recording, clearing everything that described the last one. */
     void setRecording (juce::AudioBuffer<float> audio, double sampleRate, const juce::File& file);
 
-    /** @brief Takes the melody a detector estimated, and cuts it into notes. */
-    void setMelody (PitchTrack melody);
+    /** @brief Takes the melody a detector estimated, and the notes found in it.
+        @param melody  The melody as estimated.
+        @param notes   The notes a model found, or empty to cut them up here instead.
+    */
+    void setMelody (PitchTrack melody, std::vector<Note> notes = {});
 
     [[nodiscard]] bool hasRecording() const noexcept { return recording.getNumSamples() > 0; }
     [[nodiscard]] bool hasMelody() const noexcept { return sung.getNumFrames() > 0; }
@@ -143,6 +146,10 @@ private:
     CorrectedMelody corrected;
 
     std::vector<Note> notes;
+
+    /** @brief What the analysis made of the take, which is what starting again returns to. */
+    std::vector<Note> analysedNotes;
+
     std::vector<float> drawn;
 
     Scale scale { Scale::Type::chromatic, 0 };
