@@ -1,0 +1,56 @@
+/**
+@mainpage RVCTuner
+
+A vocal pitch editor. Open a take, and the melody in it is heard note by note, laid out on a
+piano roll, and re-sung at whatever pitches you put the notes on. Nothing is sent to a server and
+nothing runs live: the whole take is read once and rendered offline, a couple of seconds at a
+time, so that an edit is audible before you have finished making it.
+
+@section engines The two engines
+
+Both engines take the same edited melody and differ only in what they need to know about the
+voice.
+
+rvctuner::MelSynthesiser runs **PC-NSF-HiFiGAN**, a vocoder conditioned on a mel spectrogram and
+a fundamental separately. The mel carries the timbre and the words, the fundamental carries the
+tune, and the network was trained on pairs where the two disagree. It therefore re-sings whoever
+was recorded, with no model of them, which is what makes it the default for correcting a take.
+
+rvctuner::VoiceSynthesiser runs an **RVC voice**: the content encoder strips the pitch out of the
+recording and keeps the words and delivery, and the vocoder puts a melody back in. The vocoder's
+weights are the voice, so this engine is a pitch corrector only when the voice it was trained on
+is the voice in the recording. Voices are trained and exported with the sibling RTVoice project.
+
+@section correcting What correction does
+
+rvctuner::correctMelody splits each note into where it sat, how it wandered, how it shook, and
+the detail below all three. Correction moves only where it sat. The wander and the shake are
+scaled by whatever the note and the global dials ask for. The detail is always kept, because a
+few hundredths of a semitone of unsteadiness is most of what separates a corrected note from a
+synthesised one. The result is a shift per frame, smoothed across note boundaries alone, so that
+tuning arrives and leaves the way a slide does rather than as a step.
+
+@section layout Layout
+
+Only the JUCE entry point sits at the top of `src/`; everything else is grouped by layer, and
+includes are path-qualified so a file's dependencies name their layer.
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | the application entry point |
+| `src/common/` | rvctuner::BinaryMatrix |
+| `src/dsp/` | rvctuner::SincResampler, rvctuner::ZeroPhaseFilter, rvctuner::MelSpectrogram, filter banks, smoothing, pitch maths |
+| `src/model/` | rvctuner::PitchDetector and rvctuner::Synthesiser and their implementations, sessions, manifest |
+| `src/edit/` | rvctuner::EditDocument, rvctuner::segmentNotes, rvctuner::correctMelody, rvctuner::RenderScheduler, rvctuner::Pipeline |
+| `src/audio/` | rvctuner::TransportPlayer |
+| `src/ui/` | rvctuner::MainComponent, rvctuner::EditorView, rvctuner::NoteGrid and the panels |
+
+@section threads Which thread does what
+
+The message thread owns the document and the editor and never blocks. rvctuner::Pipeline runs the
+detector and reads the recording on its own thread, handing back the melody as soon as it is
+heard so the editor is usable while the engine is still loading. rvctuner::RenderScheduler owns a
+second thread and renders one span at a time, nearest the playhead first; the audio thread reads
+finished spans through a sequence counter and falls back to the recording for anything not
+rendered yet, so playback never waits.
+*/
