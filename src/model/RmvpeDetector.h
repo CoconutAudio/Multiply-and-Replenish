@@ -24,7 +24,7 @@ public:
         float salienceThreshold { 0.03f };
         int frameCountMultiple { 32 };
         double minimumFrequencyHz { 50.0 };
-        double maximumFrequencyHz { 1100.0 };
+        double maximumFrequencyHz { 2000.0 };
 
         MelSpectrogram::Configuration mel { 1024, 1024, 160, 128, 513, 1.0e-5f, true };
         double melMinimumHz { 30.0 };
