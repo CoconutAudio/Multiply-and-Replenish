@@ -1,4 +1,4 @@
-PROJECT_NAME           = Tuner
+PROJECT_NAME           = "Multiply and Replenish"
 PROJECT_NUMBER         = 0.2.0
 PROJECT_BRIEF          = "Vocal pitch editor"
 

@@ -6,7 +6,7 @@
 #include <numbers>
 #include <vector>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
@@ -52,7 +52,7 @@ namespace
 
         return 2.0 * std::hypot (real, imaginary) / static_cast<double> (last - first);
     }
-} // namespace
+}
 
 TEST (SincResampler, TheModifiedBesselFunctionMatchesKnownValues)
 {

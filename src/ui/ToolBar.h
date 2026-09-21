@@ -1,76 +1,62 @@
 #pragma once
 
-#include "edit/EditDocument.h"
-#include "edit/Pipeline.h"
-#include "ui/NoteGrid.h"
+#include "common/Scale.h"
+#include "ui/EditTool.h"
+#include "ui/IconButton.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace tuner
+#include <functional>
+
+namespace multiplyandreplenish
 {
-/** @brief The bar across the top: what to open, which tool is in hand, which key, how much
-           correction, and which algorithms do the work.
+/** @brief The bar across the top: open and save, key and scale, play, undo and redo.
+
+    Nothing here carries a caption; the buttons are glyphs and the tooltips say what they do.
 */
-class ToolBar final : public juce::Component,
-                      private EditDocument::Listener
+class ToolBar final : public juce::Component
 {
 public:
-    explicit ToolBar (EditDocument& document);
-    ~ToolBar() override;
+    /** @brief @p canSave is false in the plug-in, where the host keeps the project. */
+    explicit ToolBar (bool canSave);
 
-    static constexpr int preferredHeight = 84;
+    static constexpr int preferredHeight = 48;
 
     std::function<void()> onOpen;
-    std::function<void()> onExport;
-    std::function<void()> onAnalyse;
-    std::function<void (NoteGrid::Tool)> onToolChosen;
+    std::function<void()> onSave;
+    std::function<void()> onUndo;
+    std::function<void()> onRedo;
+    std::function<void()> onPlayPause;
+    std::function<void (EditTool)> onToolChosen;
+    std::function<void (int)> onTranspose;
+    std::function<void (const Scale&)> onScaleChanged;
 
-    /** @brief The algorithms the user has chosen. */
-    [[nodiscard]] EngineOptions getEngineOptions() const;
-
-    void setTool (NoteGrid::Tool tool);
-
-    /** @brief Greys out what cannot be done until a recording is analysed. */
-    void setBusy (bool isBusy);
-
-    /** @brief Hides what a host already does: opening files, exporting, and choosing the detector,
-               which in a session belongs to the region rather than to the editor.
-    */
-    void setHostMode (bool isHosted);
+    void setPlaying (bool isPlaying);
+    void setUndoRedoEnabled (bool canUndo, bool canRedo);
+    void setScale (const Scale& scale);
 
     void paint (juce::Graphics& graphics) override;
     void resized() override;
 
 private:
-    void melodyChanged() override;
+    void scaleBoxesChanged();
+    void chooseTool (EditTool tool);
 
-    void applyScale();
-    void applyCorrection();
-
-    EditDocument& document;
-
-    juce::TextButton openButton { "OPEN" };
-    juce::TextButton exportButton { "EXPORT" };
-    juce::TextButton undoButton { "UNDO" };
-    juce::TextButton redoButton { "REDO" };
-    juce::TextButton analyseButton { "ANALYSE" };
-    juce::TextButton retuneButton { "RETUNE ALL" };
-
-    juce::TextButton selectTool { "SELECT" };
-    juce::TextButton drawTool { "DRAW" };
-    juce::TextButton splitTool { "SPLIT" };
-    juce::TextButton joinTool { "JOIN" };
+    IconButton openButton { Icons::Glyph::file, "Open" };
+    IconButton saveButton { Icons::Glyph::save, "Save" };
+    IconButton undoButton { Icons::Glyph::undo, "Undo" };
+    IconButton redoButton { Icons::Glyph::redo, "Redo" };
+    IconButton editButton { Icons::Glyph::pencil, "Edit" };
+    IconButton cutButton { Icons::Glyph::scissors, "Cut" };
+    IconButton transposeUpButton { Icons::Glyph::chevronUp, "Transpose up a scale step" };
+    IconButton transposeDownButton { Icons::Glyph::chevronDown, "Transpose down a scale step" };
+    IconButton playButton { Icons::Glyph::play, "Play" };
 
     juce::ComboBox keyBox;
     juce::ComboBox scaleBox;
-    juce::ComboBox detectorBox;
 
-    juce::Slider correctionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::Slider transitionSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::Slider vibratoSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::Slider driftSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-
-    std::vector<std::pair<juce::Component*, juce::String>> labelled;
+    bool isPlayingNow { false };
+    bool showsSave;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ToolBar)
 };

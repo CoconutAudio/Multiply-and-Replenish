@@ -1,11 +1,11 @@
-#include "edit/CorrectionCurve.h"
-#include "edit/NoteSegmenter.h"
+#include "common/PitchCurve.h"
+#include "common/NoteSegmenter.h"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
@@ -37,23 +37,23 @@ TEST (NoteSegmenter, FindsOneNotePerHeldPitch)
 {
     const auto melody = makeMelody ({ 60.0, 64.0, 67.0 }, 50);
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    const auto notes = segmentNotes (melody, {});
 
     ASSERT_EQ (notes.size(), 3u);
-    EXPECT_EQ (notes[0].targetNote, 60);
-    EXPECT_EQ (notes[1].targetNote, 64);
-    EXPECT_EQ (notes[2].targetNote, 67);
+    EXPECT_NEAR (notes[0].semitones, 60.0f, 0.05f);
+    EXPECT_NEAR (notes[1].semitones, 64.0f, 0.05f);
+    EXPECT_NEAR (notes[2].semitones, 67.0f, 0.05f);
 }
 
 TEST (NoteSegmenter, MeasuresHowFlatTheSingerWas)
 {
     const auto melody = makeMelody ({ 59.7 }, 60);
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    const auto notes = segmentNotes (melody, {});
 
     ASSERT_EQ (notes.size(), 1u);
-    EXPECT_EQ (notes[0].targetNote, 60);
-    EXPECT_NEAR (notes[0].getError(), -0.3, 0.05);
+    EXPECT_NEAR (notes[0].semitones, 59.7f, 0.05f);
+    EXPECT_TRUE (notes[0].isAsPlayed());
 }
 
 TEST (NoteSegmenter, IgnoresAPitchTooBriefToBeANote)
@@ -63,7 +63,7 @@ TEST (NoteSegmenter, IgnoresAPitchTooBriefToBeANote)
     for (int frameIndex = 50; frameIndex < 52; ++frameIndex)
         melody.fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)] = toFrequency (64.0);
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    const auto notes = segmentNotes (melody, {});
 
     EXPECT_EQ (notes.size(), 1u);
 }
@@ -75,7 +75,7 @@ TEST (NoteSegmenter, SilenceEndsANote)
     for (int frameIndex = 35; frameIndex < 45; ++frameIndex)
         melody.fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)] = 0.0f;
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    const auto notes = segmentNotes (melody, {});
 
     EXPECT_EQ (notes.size(), 2u);
 }
@@ -84,54 +84,64 @@ TEST (NoteSegmenter, TargetsFollowTheScale)
 {
     const auto melody = makeMelody ({ 61.0 }, 60);
 
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::major, 0 }, {});
+    const auto notes = segmentNotes (melody, {});
 
     ASSERT_EQ (notes.size(), 1u);
-    EXPECT_EQ (notes[0].targetNote, 60);
+    EXPECT_NEAR (notes[0].semitones, 61.0f, 0.05f);
 }
 
-TEST (CorrectionCurve, AnalysingATakeLeavesItAsPlayed)
+TEST (PitchCurve, AnalysingATakeLeavesItExactlyAsPlayed)
 {
     const auto melody = makeMelody ({ 59.7 }, 100);
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
-    const auto corrected = correctMelody (melody, notes, {}, {});
+    const auto composed = composeMelody (melody, notes);
 
-    // Nothing has been asked for yet, so nothing moves and the renderer can pass the take through.
-    ASSERT_EQ (corrected.correctedSemitones.size(), melody.fundamentalFrequencyHz.size());
-    EXPECT_NEAR (corrected.correctedSemitones[50], 59.7, 0.02);
-    EXPECT_NEAR (corrected.shiftSemitones[50], 0.0, 0.02);
+    ASSERT_EQ (composed.composedSemitones.size(), melody.fundamentalFrequencyHz.size());
+
+    for (std::size_t frameIndex = 0; frameIndex < composed.composedSemitones.size(); ++frameIndex)
+        ASSERT_NEAR (composed.composedSemitones[frameIndex], composed.sungSemitones[frameIndex], 1.0e-3f);
 }
 
-TEST (CorrectionCurve, FullCorrectionLandsOnTheTarget)
+TEST (PitchCurve, MovingANoteMovesTheWholeCurveWithIt)
 {
     const auto melody = makeMelody ({ 59.7 }, 100);
-    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
     for (auto& note : notes)
-        note.correction = 1.0f;
+        note.semitones = 60.0f;
 
-    const auto corrected = correctMelody (melody, notes, {}, {});
+    const auto composed = composeMelody (melody, notes);
 
-    ASSERT_EQ (corrected.correctedSemitones.size(), melody.fundamentalFrequencyHz.size());
-    EXPECT_NEAR (corrected.correctedSemitones[50], 60.0, 0.02);
+    EXPECT_NEAR (composed.composedSemitones[50], 60.0f, 0.02f);
 }
 
-TEST (CorrectionCurve, NoCorrectionLeavesTheTakeAlone)
+TEST (PitchCurve, TheBaseArrivesAtANoteRatherThanSteppingOntoIt)
 {
-    const auto melody = makeMelody ({ 59.7 }, 100);
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    const auto melody = makeMelody ({ 60.0, 67.0 }, 100);
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
-    CorrectionSettings settings;
-    settings.correction = 0.0f;
+    ASSERT_EQ (notes.size(), 2u);
 
-    const auto corrected = correctMelody (melody, notes, {}, settings);
+    const auto composed = composeMelody (melody, notes);
 
-    EXPECT_NEAR (corrected.correctedSemitones[50], 59.7, 0.02);
-    EXPECT_NEAR (corrected.shiftSemitones[50], 0.0, 0.02);
+    EXPECT_NEAR (composed.baseSemitones[50], 60.0f, 0.02f);
+    EXPECT_NEAR (composed.baseSemitones[150], 67.0f, 0.02f);
+
+    const auto atBoundary = composed.baseSemitones[100];
+
+    EXPECT_GT (atBoundary, 60.5f);
+    EXPECT_LT (atBoundary, 66.5f);
+
+    for (int frameIndex = 91; frameIndex <= 109; ++frameIndex)
+        ASSERT_GE (composed.baseSemitones[static_cast<std::size_t> (frameIndex)],
+                   composed.baseSemitones[static_cast<std::size_t> (frameIndex - 1)]);
 }
 
-TEST (CorrectionCurve, VibratoSurvivesCorrection)
+TEST (PitchCurve, VibratoSurvivesBeingMoved)
 {
     auto melody = makeMelody ({ 60.0 }, 200);
 
@@ -142,11 +152,13 @@ TEST (CorrectionCurve, VibratoSurvivesCorrection)
             toFrequency (59.6 + 0.4 * std::sin (2.0 * 3.14159265 * 5.5 * seconds));
     }
 
-    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
     for (auto& note : notes)
-        note.correction = 1.0f;
-    const auto corrected = correctMelody (melody, notes, {}, {});
+        note.semitones += 3.0f;
+
+    const auto composed = composeMelody (melody, notes);
 
     const auto depth = [] (const std::vector<float>& curve)
     {
@@ -162,10 +174,10 @@ TEST (CorrectionCurve, VibratoSurvivesCorrection)
         return highest - lowest;
     };
 
-    EXPECT_NEAR (depth (corrected.correctedSemitones), depth (corrected.sungSemitones), 0.1);
+    EXPECT_NEAR (depth (composed.composedSemitones), depth (composed.sungSemitones), 0.02f);
 }
 
-TEST (CorrectionCurve, VibratoCanBeScaledAway)
+TEST (PitchCurve, VibratoCanBeScaledAway)
 {
     auto melody = makeMelody ({ 60.0 }, 200);
 
@@ -176,51 +188,54 @@ TEST (CorrectionCurve, VibratoCanBeScaledAway)
             toFrequency (60.0 + 0.5 * std::sin (2.0 * 3.14159265 * 5.5 * seconds));
     }
 
-    auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
-    for (auto& note : notes)
-        note.correction = 1.0f;
+    notes[0].vibrato = 0.0f;
 
-    CorrectionSettings settings;
-    settings.vibrato = 0.0f;
+    const auto composed = composeMelody (melody, notes);
 
-    const auto corrected = correctMelody (melody, notes, {}, settings);
-
-    auto lowest = corrected.correctedSemitones[60];
-    auto highest = corrected.correctedSemitones[60];
+    auto lowest = composed.composedSemitones[60];
+    auto highest = composed.composedSemitones[60];
 
     for (std::size_t index = 60; index < 140; ++index)
     {
-        lowest = std::min (lowest, corrected.correctedSemitones[index]);
-        highest = std::max (highest, corrected.correctedSemitones[index]);
+        lowest = std::min (lowest, composed.composedSemitones[index]);
+        highest = std::max (highest, composed.composedSemitones[index]);
     }
 
-    EXPECT_LT (highest - lowest, 0.2);
+    EXPECT_LT (highest - lowest, 0.05f);
 }
 
-TEST (CorrectionCurve, UnvoicedFramesStayUnvoiced)
-{
-    auto melody = makeMelody ({ 60.0 }, 100);
-    melody.fundamentalFrequencyHz[40] = 0.0f;
-
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
-    const auto corrected = correctMelody (melody, notes, {}, {});
-
-    EXPECT_FLOAT_EQ (corrected.fundamentalFrequencyHz[40], 0.0f);
-    EXPECT_GT (corrected.fundamentalFrequencyHz[41], 0.0f);
-}
-
-TEST (CorrectionCurve, ADrawnPitchIsFollowed)
+TEST (PitchCurve, TiltingLeansTheNoteWithoutMovingItsCentre)
 {
     const auto melody = makeMelody ({ 60.0 }, 100);
-    const auto notes = segmentNotes (melody, Scale { Scale::Type::chromatic, 0 }, {});
+    auto notes = segmentNotes (melody, {});
+    measureDeviation (melody, notes);
 
-    std::vector<float> drawn (static_cast<std::size_t> (melody.getNumFrames()), 0.0f);
+    ASSERT_EQ (notes.size(), 1u);
+    notes[0].tiltRight = 1.0f;
 
-    for (std::size_t index = 30; index < 70; ++index)
-        drawn[index] = 63.0f;
+    const auto composed = composeMelody (melody, notes);
 
-    const auto corrected = correctMelody (melody, notes, drawn, {});
+    EXPECT_NEAR (composed.composedSemitones[50], 60.0f, 0.05f);
+    EXPECT_NEAR (composed.composedSemitones[95] - composed.composedSemitones[5], 1.0f, 0.1f);
+}
 
-    EXPECT_NEAR (corrected.correctedSemitones[50], 63.0, 0.05);
+TEST (PitchCurve, AnUnvoicedGapIsCarriedAcrossRatherThanLeftEmpty)
+{
+    auto melody = makeMelody ({ 60.0, 67.0 }, 50);
+
+    for (int frameIndex = 45; frameIndex < 55; ++frameIndex)
+    {
+        melody.fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)] = 0.0f;
+        melody.confidence[static_cast<std::size_t> (frameIndex)] = 0.0f;
+    }
+
+    const auto dense = interpolateThroughUnvoiced (melody);
+
+    for (const auto value : dense)
+        ASSERT_GT (value, 0.0f);
+
+    EXPECT_NEAR (dense[50], std::sqrt (dense[40] * dense[60]), dense[50] * 0.05f);
 }

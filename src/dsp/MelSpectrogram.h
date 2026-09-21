@@ -5,7 +5,7 @@
 #include <memory>
 #include <vector>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 /** @brief Log-mel spectrogram front end for the pitch estimator. */
 class MelSpectrogram

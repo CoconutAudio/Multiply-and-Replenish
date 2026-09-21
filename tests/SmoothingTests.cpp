@@ -2,7 +2,7 @@
 
 #include <gtest/gtest.h>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 TEST (Smoothing, MedianRemovesAnIsolatedSpike)
 {

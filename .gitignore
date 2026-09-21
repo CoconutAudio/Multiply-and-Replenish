@@ -11,4 +11,3 @@ htmlcov/
 assets/
 output/
 res/models/*
-!res/models/README.md

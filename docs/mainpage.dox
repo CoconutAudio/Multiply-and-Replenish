@@ -1,49 +1,53 @@
 /**
-@mainpage Tuner
+@mainpage Multiply and Replenish
 
 A vocal pitch editor. Open a take, and the melody in it is heard note by note, laid out on a
-piano roll, and re-sung at whatever pitches you put the notes on. Nothing is sent to a server and
+piano roll, and re-sung at whatever pitches you put the notes on. Every tab is another edit of the
+same take, and they all play at once, so a second tab moved up a third is a harmony. Nothing is sent to a server and
 nothing runs live: the whole take is read once and rendered offline, a couple of seconds at a
 time, so that an edit is audible before you have finished making it.
 
 @section engine The engine
 
-tuner::MelSynthesiser runs **PC-NSF-HiFiGAN**, a vocoder conditioned on a mel spectrogram and a
+multiplyandreplenish::MelSynthesiser runs **PC-NSF-HiFiGAN**, a vocoder conditioned on a mel spectrogram and a
 fundamental separately. The mel carries the timbre and the words, the fundamental carries the tune,
 and the network was trained on pairs where the two disagree. It therefore re-sings whoever was
 recorded, with no model of them, which is what makes it a corrector rather than a converter.
 
-tuner::FcpeDetector and tuner::RmvpeDetector hear the melody, behind one interface, so which one
-runs is a choice rather than a rewrite.
+multiplyandreplenish::FcpeDetector hears the melody, behind the multiplyandreplenish::PitchDetector interface a second detector
+would use if one were ever added.
 
 @section correcting What correction does
 
-tuner::correctMelody splits each note into where it sat, how it wandered, how it shook, and
-the detail below all three. Correction moves only where it sat. The wander and the shake are
-scaled by whatever the note and the global dials ask for. The detail is always kept, because a
-few hundredths of a semitone of unsteadiness is most of what separates a corrected note from a
-synthesised one. The result is a shift per frame, smoothed across note boundaries alone, so that
-tuning arrives and leaves the way a slide does rather than as a step.
+Each note is laid out on a base line — a staircase at the note's pitch, smoothed by a raised cosine
+so it arrives and leaves the way a slide does rather than as a step — and multiplyandreplenish::measureDeviation
+records the difference between what was actually sung and that line, once, when the take is
+analysed. Moving a note only moves the line; what was sung around it is untouched.
+
+multiplyandreplenish::composeMelody reassembles the two for playback, running each note's deviation through
+multiplyandreplenish::PitchTools first: tilted, scaled for vibrato, and faded at its boundaries into whatever the
+neighbouring note is doing. Nothing here is destructive — the deviation measured at analysis can
+always be recomposed exactly, which is what makes an unedited note play back as the recording.
 
 @section layout Layout
 
-Only the JUCE entry point sits at the top of `src/`; everything else is grouped by layer, and
-includes are path-qualified so a file's dependencies name their layer.
+Only the plug-in's own scaffolding sits at the top of `src/`; everything else is grouped by layer,
+and includes are path-qualified so a file's dependencies name their layer.
 
 | Directory | Contents |
 | --- | --- |
-| `src/` | the application entry point |
-| `src/dsp/` | tuner::SincResampler, tuner::ZeroPhaseFilter, tuner::MelSpectrogram, filter banks, smoothing, pitch maths |
-| `src/model/` | tuner::PitchDetector and tuner::Synthesiser and their implementations, the ONNX session, the model search |
-| `src/edit/` | tuner::EditDocument, tuner::segmentNotes, tuner::correctMelody, tuner::RenderScheduler, tuner::Pipeline |
-| `src/audio/` | tuner::TransportPlayer |
-| `src/ui/` | tuner::MainComponent, tuner::EditorView, tuner::NoteGrid and the panels |
+| `src/` | multiplyandreplenish::PluginProcessor (the take, its tabs and its projects) and multiplyandreplenish::PluginEditor, the plug-in itself |
+| `src/dsp/` | multiplyandreplenish::SincResampler, multiplyandreplenish::ZeroPhaseFilter, multiplyandreplenish::MelSpectrogram, filter banks, smoothing, pitch maths |
+| `src/nn/` | multiplyandreplenish::PitchDetector and multiplyandreplenish::Synthesiser and their implementations, the ONNX session, the model search |
+| `src/common/` | multiplyandreplenish::EditDocument, multiplyandreplenish::segmentNotes, multiplyandreplenish::composeMelody, multiplyandreplenish::RenderScheduler, multiplyandreplenish::Pipeline, multiplyandreplenish::TransportPlayer |
+| `src/ui/` | multiplyandreplenish::EditorView, multiplyandreplenish::NoteGrid, the tab bar and the toolbar |
+| `src/ara/` | the ARA document controller and playback renderer, so the plug-in edits audio already on the host's timeline |
 
 @section threads Which thread does what
 
-The message thread owns the document and the editor and never blocks. tuner::Pipeline runs the
+The message thread owns the document and the editor and never blocks. multiplyandreplenish::Pipeline runs the
 detector and reads the recording on its own thread, handing back the melody as soon as it is
-heard so the editor is usable while the engine is still loading. tuner::RenderScheduler owns a
+heard so the editor is usable while the engine is still loading. multiplyandreplenish::RenderScheduler owns a
 second thread and renders one span at a time, nearest the playhead first; the audio thread reads
 finished spans through a sequence counter and falls back to the recording for anything not
 rendered yet, so playback never waits.

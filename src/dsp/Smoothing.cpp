@@ -4,7 +4,7 @@
 #include <cmath>
 #include <numeric>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 std::vector<float> medianFilter (const std::vector<float>& values, int halfLength)
 {

@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 /** @brief Kaiser-windowed sinc resampler whose cutoff tracks the rate ratio, so downsampling cannot alias. */
 class SincResampler

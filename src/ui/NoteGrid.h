@@ -1,10 +1,11 @@
 #pragma once
 
-#include "edit/EditDocument.h"
+#include "common/EditDocument.h"
+#include "ui/EditTool.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 /** @brief The note grid: a row per semitone, the melody drawn across it, and the notes on top.
 
@@ -19,15 +20,6 @@ public:
     explicit NoteGrid (EditDocument& document);
     ~NoteGrid() override;
 
-    /** @brief What the mouse does on the grid. */
-    enum class Tool
-    {
-        select,
-        draw,
-        split,
-        join
-    };
-
     /** @brief The rows the grid holds, which is the piano's range rather than a singer's: an
                instrument is as likely to be a cello as a soprano.
     */
@@ -40,8 +32,11 @@ public:
     static constexpr float minimumRowHeight = 4.0f;
     static constexpr float maximumRowHeight = 40.0f;
 
-    void setTool (Tool tool);
-    [[nodiscard]] Tool getTool() const noexcept { return tool; }
+    /** @brief Shows another document's notes. The grid never owns the document it draws. */
+    void setDocument (EditDocument& newDocument);
+
+    void setTool (EditTool newTool);
+    void setTabColour (juce::Colour colour);
 
     void setZoom (float pixelsPerSecond, float rowHeight);
 
@@ -66,22 +61,16 @@ public:
     /** @brief Where the playhead is drawn, in seconds. */
     void setPlayheadPosition (double seconds);
 
-    /** @brief Shows the stretch that plays on repeat, or nothing when @p shouldShow is false. */
-    void setLoopRange (double firstSecond, double lastSecond, bool shouldShow);
-
     /** @brief Called when the user clicks somewhere that should move the playhead. */
     std::function<void (double)> onPositionClicked;
-
-    /** @brief Called when the user drags out a stretch to play on repeat. */
-    std::function<void (double, double)> onLoopDragged;
 
     void paint (juce::Graphics& graphics) override;
 
     void mouseDown (const juce::MouseEvent& event) override;
     void mouseDrag (const juce::MouseEvent& event) override;
     void mouseUp (const juce::MouseEvent& event) override;
-    void mouseDoubleClick (const juce::MouseEvent& event) override;
     void mouseMove (const juce::MouseEvent& event) override;
+    void mouseExit (const juce::MouseEvent& event) override;
 
     bool keyPressed (const juce::KeyPress& key) override;
 
@@ -95,9 +84,7 @@ private:
     {
         none,
         moveNotes,
-        rubberBand,
-        drawPitch,
-        loopRange
+        rubberBand
     };
 
     void paintRows (juce::Graphics& graphics) const;
@@ -106,34 +93,32 @@ private:
                      juce::Colour colour, float thickness) const;
     void paintNotes (juce::Graphics& graphics) const;
     void paintPlayhead (juce::Graphics& graphics) const;
-    void paintLoop (juce::Graphics& graphics) const;
 
     [[nodiscard]] int getNoteIndexAt (juce::Point<float> position) const;
     [[nodiscard]] int getFrameForX (float x) const;
     [[nodiscard]] std::vector<int> getSelectedIndices() const;
     [[nodiscard]] juce::Rectangle<float> getNoteBounds (const Note& note) const;
 
-    void showMenuFor (int noteIndex);
+    /** @brief How far a dragged note has moved so far, in semitones, snapped to the scale unless
+               the drag is free. */
+    [[nodiscard]] float getDragShift (const Note& note) const;
 
-    EditDocument& document;
-
-    Tool tool { Tool::select };
+    EditDocument* document;
 
     float pixelsPerSecond { 110.0f };
     float rowHeight { 14.0f };
 
+    EditTool tool { EditTool::edit };
+    juce::Colour tabColour { 0xffb08cff };
+    float hoverX { -1.0f };
+
     Drag drag { Drag::none };
     int dragNoteIndex { -1 };
-    int dragSemitones { 0 };
+    float dragDelta { 0.0f };
+    bool dragIsFree { false };
     juce::Point<float> dragOrigin;
 
-    int drawFirstFrame { 0 };
-    std::vector<float> drawnSpan;
-
     double playheadSeconds { 0.0 };
-    double loopFirstSecond { 0.0 };
-    double loopLastSecond { 0.0 };
-    bool showLoop { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NoteGrid)
 };

@@ -8,13 +8,13 @@
 #include <numbers>
 #include <vector>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
     juce::File getFixtureDirectory()
     {
-        return juce::File { TUNER_TEST_FIXTURE_DIR };
+        return juce::File { MULTIPLYANDREPLENISH_TEST_FIXTURE_DIR };
     }
 
     MelSpectrogram::Configuration getReferenceConfiguration()
@@ -29,14 +29,14 @@ namespace
         configuration.isCentred = true;
         return configuration;
     }
-} // namespace
+}
 
 class MelSpectrogramTest : public testing::Test
 {
 protected:
     void SetUp() override
     {
-        const auto bank = tuner::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
+        const auto bank = multiplyandreplenish::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
         ASSERT_TRUE (bank.isValid()) << bank.getError();
 
         const auto numValues = static_cast<std::size_t> (bank.getNumRows())
@@ -68,8 +68,8 @@ TEST_F (MelSpectrogramTest, ASignalShorterThanTheReflectionIsRefused)
 
 TEST_F (MelSpectrogramTest, TheSpectrogramMatchesTheReferenceImplementation)
 {
-    const auto source = tuner::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("test_signal.bin"));
-    const auto expected = tuner::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("expected_log_mel.bin"));
+    const auto source = multiplyandreplenish::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("test_signal.bin"));
+    const auto expected = multiplyandreplenish::test::FixtureMatrix::load (getFixtureDirectory().getChildFile ("expected_log_mel.bin"));
 
     ASSERT_TRUE (source.isValid()) << source.getError();
     ASSERT_TRUE (expected.isValid()) << expected.getError();

@@ -2,91 +2,83 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace tuner
+namespace multiplyandreplenish
 {
-/** @brief The plug-in's visual house style: one palette, one type scale, flat surfaces. */
+/** @brief The flat house style: solid fills, hairline edges, white for every control, colour only for the tabs, no gradients.
+
+    Flat and dark, neutral greys with one saturated colour per tab. Every control is drawn through
+    this, so state is carried by fill and colour alone.
+*/
 class PanelLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
     PanelLookAndFeel();
 
-    /** @brief Colours named for the role they play, never for the colour they are. */
     struct Palette
     {
-        inline static const juce::Colour ground { 0xff12151a };
-        inline static const juce::Colour bar { 0xff1a1e26 };
-        inline static const juce::Colour well { 0xff0d1015 };
-        inline static const juce::Colour edge { 0xff2a3140 };
-        inline static const juce::Colour rule { 0xff1b2028 };
-        inline static const juce::Colour text { 0xffe6eaf1 };
-        inline static const juce::Colour dimText { 0xff7d8694 };
-        inline static const juce::Colour accent { 0xff43c6f0 };
-        inline static const juce::Colour noteBlock { 0xff1d3a48 };
-        inline static const juce::Colour silhouette { 0xff26313d };
-        inline static const juce::Colour whiteKey { 0xffccd3dd };
-        inline static const juce::Colour blackKey { 0xff1a1e26 };
-        inline static const juce::Colour blackKeyRow { 0xff0a0d11 };
-        inline static const juce::Colour alert { 0xffe4674f };
+        inline static const juce::Colour ground { 0xff101012 };
+        inline static const juce::Colour bar { 0xff161618 };
+        inline static const juce::Colour card { 0xff202023 };
+        inline static const juce::Colour cardRaised { 0xff2a2a2e };
+        inline static const juce::Colour well { 0xff0b0b0c };
+        inline static const juce::Colour edge { 0xff333338 };
+        inline static const juce::Colour rule { 0xff1c1c1f };
+
+        inline static const juce::Colour text { 0xfff0f0f2 };
+        inline static const juce::Colour dimText { 0xff8a8a92 };
+
+        inline static const juce::Colour accent { 0xffffffff };
+        inline static const juce::Colour alert { 0xffff4d5e };
+
+        inline static const juce::Colour silhouette { 0xff2a2a2e };
+        inline static const juce::Colour sungCurve { 0xff77777f };
+        inline static const juce::Colour whiteKey { 0xff1e1e21 };
+        inline static const juce::Colour blackKey { 0xff121214 };
+        inline static const juce::Colour blackKeyRow { 0xff0d0d0f };
+
+        /** @brief The hue of a tab; it colours the tab, its notes and its curve, and cycles past eight. */
+        static juce::Colour tab (int index)
+        {
+            static const juce::Colour hues[] = { juce::Colour { 0xffb08cff }, juce::Colour { 0xffff4fa3 },
+                                                 juce::Colour { 0xff2fd8ff }, juce::Colour { 0xff3dff9a },
+                                                 juce::Colour { 0xffffb23d }, juce::Colour { 0xffff5c5c },
+                                                 juce::Colour { 0xff5c8cff }, juce::Colour { 0xffc65cff } };
+
+            return hues[static_cast<std::size_t> (((index % 8) + 8) % 8)];
+        }
     };
 
-    /** @brief The four type sizes, in points. */
     struct TypeScale
     {
-        static constexpr float title = 16.0f;
         static constexpr float value = 12.5f;
         static constexpr float label = 10.0f;
         static constexpr float caption = 11.5f;
     };
 
-    /** @brief Panel metrics, in logical pixels. */
     struct Metrics
     {
-        static constexpr int headerHeight = 42;
-        static constexpr int footerHeight = 26;
         static constexpr int margin = 10;
         static constexpr int gap = 8;
         static constexpr float hairline = 1.0f;
-        static constexpr float tracking = 1.4f;
-    };
+            };
 
-    /** @brief Draws letter-spaced text, which JUCE has no direct support for.
-        @param graphics       Where to draw.
-        @param text           Drawn as given; capitalise at the call site.
-        @param bounds         The text is positioned within these bounds and vertically centred.
-        @param justification  Horizontal only.
-        @param fontHeight     From TypeScale.
-        @param tracking       Extra advance per character, in pixels.
-        @param colour         Text colour.
-    */
-    static void drawTrackedText (juce::Graphics& graphics,
-                                 const juce::String& text,
-                                 juce::Rectangle<float> bounds,
-                                 juce::Justification justification,
-                                 float fontHeight,
-                                 float tracking,
-                                 juce::Colour colour);
+    void drawComboBox (juce::Graphics& graphics,
+                       int width,
+                       int height,
+                       bool isButtonDown,
+                       int buttonX,
+                       int buttonY,
+                       int buttonWidth,
+                       int buttonHeight,
+                       juce::ComboBox& box) override;
 
-    /** @brief Returns the width @c text would occupy at this height and tracking. */
-    [[nodiscard]] static float getTrackedTextWidth (const juce::String& text,
-                                                    float fontHeight,
-                                                    float tracking);
-
-    void drawButtonBackground (juce::Graphics& graphics,
-                               juce::Button& button,
-                               const juce::Colour& backgroundColour,
-                               bool shouldDrawAsHighlighted,
-                               bool shouldDrawAsDown) override;
-
-    void drawButtonText (juce::Graphics& graphics,
-                         juce::TextButton& button,
-                         bool shouldDrawAsHighlighted,
-                         bool shouldDrawAsDown) override;
+    void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override;
+    juce::Font getComboBoxFont (juce::ComboBox& box) override;
 
     void drawPopupMenuBackgroundWithOptions (juce::Graphics& graphics,
                                              int width,
                                              int height,
                                              const juce::PopupMenu::Options& options) override;
-
     juce::Font getPopupMenuFont() override;
 
     void drawScrollbar (juce::Graphics& graphics,
@@ -112,5 +104,4 @@ public:
                            juce::Slider::SliderStyle style,
                            juce::Slider& slider) override;
 };
-
-} // namespace tuner
+}

@@ -1,4 +1,4 @@
-add_executable(tuner_tests
+set(TEST_SOURCES
     EditDocumentTests.cpp
     MelFilterBankTests.cpp
     MelSpectrogramTests.cpp
@@ -9,17 +9,19 @@ add_executable(tuner_tests
     SmoothingTests.cpp
     ZeroPhaseFilterTests.cpp)
 
-target_link_libraries(tuner_tests
+add_executable(tests ${TEST_SOURCES})
+
+target_link_libraries(tests
     PRIVATE
-        tuner_engine
-        tuner_warnings
+        engine
         GTest::gtest_main)
 
-target_compile_definitions(tuner_tests PRIVATE
-    TUNER_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-    TUNER_MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../res/models")
+target_compile_definitions(tests PRIVATE
+    MULTIPLYANDREPLENISH_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
-tuner_apply_strict_warnings(
+mr_warnings(${TEST_SOURCES})
+
+mr_strict_warnings(
     MelFilterBankTests.cpp
     PitchConversionsTests.cpp
     ScaleTests.cpp
@@ -27,4 +29,4 @@ tuner_apply_strict_warnings(
     SmoothingTests.cpp)
 
 include(GoogleTest)
-gtest_discover_tests(tuner_tests)
+gtest_discover_tests(tests)

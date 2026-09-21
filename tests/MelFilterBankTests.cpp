@@ -6,7 +6,7 @@
 #include <cmath>
 #include <numeric>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
@@ -72,6 +72,5 @@ TEST (MelFilterBank, NormalisationScalesByBandWidth)
     EXPECT_LT (peakOfBand (normalised, 0), peakOfBand (raw, 0));
     EXPECT_LT (peakOfBand (normalised, numMelBins - 1), peakOfBand (raw, numMelBins - 1));
 
-    // Normalising divides each band by its width, and the bands widen with frequency.
     EXPECT_GT (peakOfBand (normalised, 0), peakOfBand (normalised, numMelBins - 1));
 }

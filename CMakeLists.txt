@@ -1,205 +1,136 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 
-project(Tuner
-    VERSION 0.2.0
-    DESCRIPTION "Vocal pitch editor: analyse a sung take, edit its melody, hear it back sung"
-    HOMEPAGE_URL "https://github.com/vivekvjyn/Tuner"
-    LANGUAGES C CXX)
+project(MultiplyAndReplenish VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-option(TUNER_BUILD_TESTS "Build the unit tests" ON)
+option(BUILD_TESTS "Build the unit tests" ON)
 
-set(TUNER_ONNXRUNTIME_ROOT "" CACHE PATH
-    "ONNX Runtime installation to build against, instead of the system one or a downloaded release")
+add_subdirectory(libs/JUCE SYSTEM)
 
-set(TUNER_ONNXRUNTIME_VERSION "1.19.2" CACHE STRING
-    "Version of ONNX Runtime to download when none is installed")
-
-include(cmake/OnnxRuntime.cmake)
-
-foreach(submodule JUCE googletest)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/CMakeLists.txt")
-        message(FATAL_ERROR "libs/${submodule} is empty. See the build steps in README.md.")
-    endif()
-endforeach()
-
-add_subdirectory(libs/JUCE)
-
-add_library(tuner_warnings INTERFACE)
-
-if(MSVC)
-    target_compile_options(tuner_warnings INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
+# ONNX Runtime (prebuilt)
+set(ORT_VERSION 1.19.2)
+if(WIN32)
+    set(ORT_NAME onnxruntime-win-x64-${ORT_VERSION}.zip)
+    set(ORT_LIB lib/onnxruntime.lib)
+    set(ORT_RUNTIME lib/onnxruntime.dll)
+    set(ORT_RUNTIME_NAME onnxruntime.dll)
+elseif(APPLE)
+    set(ORT_NAME onnxruntime-osx-universal2-${ORT_VERSION}.tgz)
+    set(ORT_LIB lib/libonnxruntime.dylib)
+    set(ORT_RUNTIME lib/libonnxruntime.${ORT_VERSION}.dylib)
+    set(ORT_RUNTIME_NAME libonnxruntime.${ORT_VERSION}.dylib)
 else()
-    target_compile_options(tuner_warnings INTERFACE
-        $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic
-            -Wshadow                # a shadowed sampleRate is a real bug here
-            -Wnon-virtual-dtor
-            -Wcast-align
-            -Woverloaded-virtual>)
+    set(ORT_NAME onnxruntime-linux-x64-${ORT_VERSION}.tgz)
+    set(ORT_LIB lib/libonnxruntime.so)
+    set(ORT_RUNTIME lib/libonnxruntime.so.${ORT_VERSION})
+    set(ORT_RUNTIME_NAME libonnxruntime.so.1)
 endif()
 
-function(tuner_apply_strict_warnings)
-    if(MSVC)
-        return()
-    endif()
+include(FetchContent)
+FetchContent_Declare(onnxruntime
+    URL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_NAME})
+FetchContent_MakeAvailable(onnxruntime)
 
-    foreach(sourceFile ${ARGN})
-        set_property(SOURCE "${sourceFile}" APPEND PROPERTY COMPILE_OPTIONS
-            -Wdouble-promotion      # float32 audio silently widened to double
-            -Wfloat-conversion
-            -Wconversion            # and every other implicit narrowing
-            -Wsign-conversion       # a negative index into a std::size_t
-            -Wold-style-cast
-            -Wuseless-cast
-            -Wcast-qual
-            -Wextra-semi)
-    endforeach()
+# Warning flags go on our own sources only, never on the JUCE modules built into a target.
+function(mr_warnings)
+    if(MSVC)
+        set(flags /W4 /permissive-)
+    else()
+        set(flags -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wcast-align -Woverloaded-virtual)
+    endif()
+    set_property(SOURCE ${ARGN} APPEND PROPERTY COMPILE_OPTIONS ${flags})
 endfunction()
 
-set(TUNER_ENGINE_SOURCES
-    src/dsp/MelFilterBank.cpp
-    src/dsp/MelSpectrogram.cpp
-    src/dsp/SincResampler.cpp
-    src/dsp/Smoothing.cpp
-    src/dsp/ZeroPhaseFilter.cpp
-    src/edit/CorrectionCurve.cpp
-    src/edit/EditDocument.cpp
-    src/edit/MidiExport.cpp
-    src/edit/NoteSegmenter.cpp
-    src/edit/Pipeline.cpp
-    src/edit/RenderScheduler.cpp
-    src/edit/Scale.cpp
-    src/model/FcpeDetector.cpp
-    src/model/GameSegmenter.cpp
-    src/model/MelSynthesiser.cpp
-    src/model/ModelLibrary.cpp
-    src/model/OnnxSession.cpp
-    src/model/RmvpeDetector.cpp)
+function(mr_strict_warnings)
+    if(NOT MSVC)
+        set_property(SOURCE ${ARGN} APPEND PROPERTY COMPILE_OPTIONS
+            -Wdouble-promotion -Wfloat-conversion -Wconversion -Wsign-conversion
+            -Wold-style-cast -Wuseless-cast -Wcast-qual -Wextra-semi)
+    endif()
+endfunction()
 
-add_library(tuner_engine STATIC ${TUNER_ENGINE_SOURCES})
-target_include_directories(tuner_engine PUBLIC src)
+# Engine: DSP, models and editing logic. No plugin code, so the tests can link it.
+file(GLOB ENGINE_SOURCES CONFIGURE_DEPENDS src/dsp/*.cpp src/nn/*.cpp src/common/*.cpp)
 
-target_link_libraries(tuner_engine
-    PUBLIC
-        juce::juce_audio_basics
-        juce::juce_audio_formats
-        juce::juce_core
-        juce::juce_data_structures
-        juce::juce_dsp
-        juce::juce_events
-        tuner_onnxruntime
-    PRIVATE
-        tuner_warnings)
+add_library(engine STATIC ${ENGINE_SOURCES})
+target_include_directories(engine PUBLIC src)
+target_include_directories(engine SYSTEM PUBLIC ${onnxruntime_SOURCE_DIR}/include)
+target_link_libraries(engine PUBLIC
+    juce::juce_audio_devices
+    juce::juce_audio_formats
+    juce::juce_audio_utils
+    juce::juce_dsp
+    ${onnxruntime_SOURCE_DIR}/${ORT_LIB})
+target_compile_definitions(engine
+    PUBLIC JUCE_USE_MP3AUDIOFORMAT=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+           JUCE_MODAL_LOOPS_PERMITTED=0 JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    PRIVATE MULTIPLYANDREPLENISH_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
+mr_warnings(${ENGINE_SOURCES})
+mr_strict_warnings(src/dsp/MelFilterBank.cpp src/dsp/SincResampler.cpp
+                   src/dsp/Smoothing.cpp src/dsp/ZeroPhaseFilter.cpp)
 
-target_compile_definitions(tuner_engine PUBLIC
-    JUCE_USE_MP3AUDIOFORMAT=1
-    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_MODAL_LOOPS_PERMITTED=0)
-
-target_compile_definitions(tuner_engine PRIVATE
-    TUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
-
-set(TUNER_UI_SOURCES
-    src/ui/EditorView.cpp
-    src/ui/Inspector.cpp
-    src/ui/MainComponent.cpp
-    src/ui/NoteGrid.cpp
-    src/ui/PanelLookAndFeel.cpp
-    src/ui/ToolBar.cpp
-    src/ui/TransportBar.cpp)
-
-add_library(tuner_ui STATIC ${TUNER_UI_SOURCES} src/audio/TransportPlayer.cpp)
-target_include_directories(tuner_ui PUBLIC src)
-
-target_link_libraries(tuner_ui
-    PUBLIC
-        tuner_engine
-        juce::juce_audio_devices
-        juce::juce_audio_utils
-        juce::juce_gui_extra
-    PRIVATE
-        tuner_warnings)
-
-juce_add_gui_app(Tuner
-    PRODUCT_NAME "Tuner"
-    COMPANY_NAME "Pitch Innovations"
-    BUNDLE_ID "com.pitchinnovations.tuner"
-    DESCRIPTION "Vocal pitch editor"
-    NEEDS_CURL FALSE
-    NEEDS_WEB_BROWSER FALSE)
-
-target_sources(Tuner PRIVATE src/Main.cpp)
-target_include_directories(Tuner PRIVATE src)
-
-target_compile_definitions(Tuner PUBLIC
-    JUCE_USE_MP3AUDIOFORMAT=1
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_MODAL_LOOPS_PERMITTED=0
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:Tuner,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:Tuner,JUCE_VERSION>")
-
-target_link_libraries(Tuner
-    PRIVATE
-        tuner_ui
-        tuner_warnings
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags)
-
-tuner_copy_onnxruntime_beside(Tuner)
-
-juce_add_console_app(tuner_tune
-    PRODUCT_NAME "tuner-tune")
-
-target_sources(tuner_tune PRIVATE tools/TuneCli.cpp)
-target_include_directories(tuner_tune PRIVATE src)
-
-target_compile_definitions(tuner_tune PRIVATE
-    TUNER_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
-
-target_link_libraries(tuner_tune
-    PRIVATE
-        tuner_engine
-        tuner_warnings
-    PUBLIC
-        juce::juce_recommended_config_flags)
-
-tuner_copy_onnxruntime_beside(tuner_tune)
-
-tuner_apply_strict_warnings(
-    src/dsp/MelFilterBank.cpp
-    src/dsp/SincResampler.cpp
-    src/dsp/Smoothing.cpp
-    src/dsp/ZeroPhaseFilter.cpp)
-
-find_package(Doxygen)
-
-if(DOXYGEN_FOUND)
-    add_custom_target(tuner_docs
-        COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs"
-        COMMENT "Generating API documentation"
-        VERBATIM)
+# Plugin: VST3 and Standalone. Under ARA the host hands over the audio already on its timeline.
+set(ARA_SDK_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs/ARA_SDK)
+if(EXISTS ${ARA_SDK_PATH}/ARA_Library/Debug/ARADebug.h)
+    juce_set_ara_sdk_path(${ARA_SDK_PATH})
+    set(ARA_AVAILABLE TRUE)
+else()
+    set(ARA_AVAILABLE FALSE)
+    message(STATUS "ARA SDK not found, building without ARA: git submodule update --init --recursive libs/ARA_SDK")
 endif()
 
-if(TUNER_BUILD_TESTS)
+juce_add_plugin(MultiplyAndReplenish
+    PRODUCT_NAME "Multiply and Replenish"
+    COMPANY_NAME "Pitch Innovations"
+    BUNDLE_ID com.pitchinnovations.multiplyandreplenish
+    PLUGIN_MANUFACTURER_CODE Pinn
+    PLUGIN_CODE Mpar
+    FORMATS VST3 Standalone
+    IS_ARA_EFFECT $<BOOL:${ARA_AVAILABLE}>
+    ARA_FACTORY_ID "\"com.pitchinnovations.multiplyandreplenish.arafactory.1\""
+    ARA_DOCUMENT_ARCHIVE_ID "\"com.pitchinnovations.multiplyandreplenish.aradocumentarchive.1\""
+    ARA_ANALYSIS_TYPES kARAContentTypeNotes
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE)
+
+file(GLOB PLUGIN_SOURCES CONFIGURE_DEPENDS src/*.cpp src/ui/*.cpp)
+target_sources(MultiplyAndReplenish PRIVATE ${PLUGIN_SOURCES})
+mr_warnings(${PLUGIN_SOURCES})
+
+if(ARA_AVAILABLE)
+    target_sources(MultiplyAndReplenish PRIVATE src/ara/AraSupport.cpp src/ara/DocumentController.cpp)
+    target_compile_definitions(MultiplyAndReplenish PUBLIC JucePlugin_Enable_ARA=1)
+endif()
+
+target_compile_definitions(MultiplyAndReplenish PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(MultiplyAndReplenish
+    PRIVATE engine
+    PUBLIC juce::juce_audio_processors juce::juce_gui_extra juce::juce_recommended_config_flags)
+
+# The runtime must sit next to each built plugin under the name the binary asks for (its
+# SONAME), or the loader falls back to whatever version the system has installed.
+foreach(format VST3 Standalone)
+    set(target MultiplyAndReplenish_${format})
+    set_target_properties(${target} PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$<IF:$<PLATFORM_ID:Darwin>,@loader_path,$ORIGIN>")
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${onnxruntime_SOURCE_DIR}/${ORT_RUNTIME} $<TARGET_FILE_DIR:${target}>/${ORT_RUNTIME_NAME})
+endforeach()
+
+if(BUILD_TESTS)
     enable_testing()
     set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     add_subdirectory(libs/googletest)
     add_subdirectory(tests)
 endif()

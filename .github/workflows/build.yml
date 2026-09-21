@@ -33,9 +33,9 @@ jobs:
 
       - name: Check out the submodules we need
         shell: bash
-        run: git submodule update --init --depth 1 libs/JUCE libs/googletest
+        run: |
+          git submodule update --init --recursive --depth 1 libs/JUCE libs/googletest libs/ARA_SDK
 
-      # JUCE needs these to draw a window and open an audio device on Linux.
       - name: Install the Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -50,14 +50,8 @@ jobs:
         if: runner.os != 'Linux'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      - name: Cache the ONNX Runtime download
-        uses: actions/cache@v4
-        with:
-          path: build/_deps
-          key: onnxruntime-${{ runner.os }}-${{ hashFiles('cmake/OnnxRuntime.cmake') }}
-
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --parallel
@@ -67,8 +61,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Tuner-${{ matrix.name }}
+          name: MultiplyAndReplenish-${{ matrix.name }}
           if-no-files-found: error
           path: |
-            build/Tuner_artefacts/RelWithDebInfo/Tuner*
-            build/tuner_tune_artefacts/RelWithDebInfo/tuner*
+            build/MultiplyAndReplenish_artefacts/Release/VST3
+            build/MultiplyAndReplenish_artefacts/Release/Standalone

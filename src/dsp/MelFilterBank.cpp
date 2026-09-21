@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 namespace
 {

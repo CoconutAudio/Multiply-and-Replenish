@@ -1,17 +1,17 @@
 #include "ui/EditorView.h"
 
+#include "ui/Flat.h"
 #include "ui/PanelLookAndFeel.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 namespace
 {
     using Palette = PanelLookAndFeel::Palette;
     using TypeScale = PanelLookAndFeel::TypeScale;
-    using Metrics = PanelLookAndFeel::Metrics;
 
     bool isBlackKey (int midiNote)
     {
@@ -40,42 +40,38 @@ namespace
 }
 
 EditorView::EditorView (EditDocument& documentToEdit)
-    : document (documentToEdit),
+    : document (&documentToEdit),
       grid (documentToEdit)
 {
     setOpaque (true);
-    document.addListener (this);
+    document->addListener (this);
 
     viewport.setViewedComponent (&grid, false);
-    viewport.setScrollBarsShown (true, true);
-    viewport.setScrollBarThickness (scrollBarThickness);
+    viewport.setScrollBarsShown (false, false);
     viewport.onScroll = [this] { repaint(); };
-    addAndMakeVisible (viewport);
-
-    const auto configureScaler = [this] (juce::Slider& slider, double minimum, double maximum, double value)
+    viewport.onWheel = [this] (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
     {
-        slider.setRange (minimum, maximum);
-        slider.setValue (value, juce::dontSendNotification);
-        slider.setDoubleClickReturnValue (true, value);
-        slider.onValueChange = [this] { applyZoom(); };
-        addAndMakeVisible (slider);
+        handleWheel (event.getEventRelativeTo (this), wheel);
     };
-
-    configureScaler (horizontalScaler, NoteGrid::minimumPixelsPerSecond, NoteGrid::maximumPixelsPerSecond,
-                     grid.getPixelsPerSecond());
-    configureScaler (verticalScaler, NoteGrid::minimumRowHeight, NoteGrid::maximumRowHeight,
-                     grid.getRowHeight());
+    addAndMakeVisible (viewport);
 }
 
 EditorView::~EditorView()
 {
-    document.removeListener (this);
+    document->removeListener (this);
+}
+
+void EditorView::setTabColour (juce::Colour colour)
+{
+    tabColour = colour;
+    grid.setTabColour (colour);
+    repaint();
 }
 
 void EditorView::recordingChanged()
 {
     rebuildWaveform();
-    applyZoom();
+    resizeGrid();
     scrollToSinging();
     repaint();
 }
@@ -87,9 +83,18 @@ void EditorView::setCaption (const juce::String& newCaption, bool isAlert)
     repaint();
 }
 
-void EditorView::setLoopRange (double firstSecond, double lastSecond, bool shouldShow)
+void EditorView::setDocument (EditDocument& newDocument)
 {
-    grid.setLoopRange (firstSecond, lastSecond, shouldShow);
+    if (document == &newDocument)
+        return;
+
+    document->removeListener (this);
+    document = &newDocument;
+    document->addListener (this);
+
+    grid.setDocument (newDocument);
+    rebuildWaveform();
+    resized();
     repaint();
 }
 
@@ -117,28 +122,163 @@ void EditorView::scrollToSinging()
     viewport.setViewPosition (0, std::max (0, centre - viewport.getViewHeight() / 2));
 }
 
-void EditorView::applyZoom()
+void EditorView::resizeGrid()
 {
-    const auto anchorSeconds = grid.getTimeForX (static_cast<float> (viewport.getViewPositionX()));
-
-    grid.setZoom (static_cast<float> (horizontalScaler.getValue()),
-                  static_cast<float> (verticalScaler.getValue()));
-
     const auto preferred = grid.getPreferredSize (viewport.getMaximumVisibleWidth(),
                                                   viewport.getMaximumVisibleHeight());
     grid.setSize (preferred.x, preferred.y);
+}
 
-    viewport.setViewPosition (juce::roundToInt (grid.getXForTime (anchorSeconds)),
+void EditorView::zoomHorizontally (float factor, double anchorSeconds, int anchorOffset)
+{
+    grid.setZoom (grid.getPixelsPerSecond() * factor, grid.getRowHeight());
+    resizeGrid();
+
+    viewport.setViewPosition (juce::roundToInt (grid.getXForTime (anchorSeconds)) - anchorOffset,
                               viewport.getViewPositionY());
-
     repaint();
+}
+
+void EditorView::zoomVertically (float factor, int anchorOffset)
+{
+    const auto oldHeight = static_cast<float> (std::max (1, grid.getHeight()));
+    const auto ratio = static_cast<float> (viewport.getViewPositionY() + anchorOffset) / oldHeight;
+
+    grid.setZoom (grid.getPixelsPerSecond(), grid.getRowHeight() * factor);
+    resizeGrid();
+
+    viewport.setViewPosition (viewport.getViewPositionX(),
+                              juce::roundToInt (ratio * static_cast<float> (grid.getHeight())) - anchorOffset);
+    repaint();
+}
+
+void EditorView::scrollBy (float deltaX, float deltaY)
+{
+    viewport.setViewPosition (viewport.getViewPositionX() + juce::roundToInt (deltaX),
+                              viewport.getViewPositionY() + juce::roundToInt (deltaY));
+}
+
+void EditorView::scrollToSeconds (double firstSecond)
+{
+    viewport.setViewPosition (juce::roundToInt (grid.getXForTime (std::max (0.0, firstSecond))),
+                              viewport.getViewPositionY());
+}
+
+juce::Rectangle<int> EditorView::getOverviewBounds() const
+{
+    return getLocalBounds().removeFromBottom (waveformHeight);
+}
+
+double EditorView::getOverviewTime (float x) const
+{
+    const auto bounds = getOverviewBounds();
+
+    return static_cast<double> ((x - static_cast<float> (bounds.getX())) / static_cast<float> (bounds.getWidth()))
+         * document->getSeconds();
+}
+
+juce::Rectangle<float> EditorView::getOverviewViewBox() const
+{
+    const auto bounds = getOverviewBounds().toFloat();
+    const auto seconds = document->getSeconds();
+
+    if (seconds <= 0.0)
+        return {};
+
+    const auto toX = [&] (double time)
+    {
+        return bounds.getX() + static_cast<float> (time / seconds) * bounds.getWidth();
+    };
+
+    const auto first = grid.getTimeForX (static_cast<float> (viewport.getViewPositionX()));
+    const auto last = grid.getTimeForX (static_cast<float> (viewport.getViewPositionX() + viewport.getViewWidth()));
+
+    return juce::Rectangle<float> (toX (first), bounds.getY(), toX (last) - toX (first), bounds.getHeight())
+        .reduced (0.0f, 2.0f);
+}
+
+void EditorView::handleWheel (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    constexpr auto scrollPixels = 300.0f;
+    constexpr auto zoomSpeed = 1.5f;
+
+    const auto zooms = event.mods.isCtrlDown() || event.mods.isCommandDown();
+    const auto factor = std::exp (wheel.deltaY * zoomSpeed);
+    const auto position = event.getPosition();
+
+    const auto overview = getOverviewBounds();
+    const auto gridArea = viewport.getBounds();
+    const auto overRuler = position.y < gridArea.getY() && position.x >= gridArea.getX();
+
+    if (overview.contains (position) || overRuler)
+    {
+        if (document->getSeconds() <= 0.0)
+            return;
+
+        if (zooms)
+        {
+            const auto centre = viewport.getViewWidth() / 2;
+
+            zoomHorizontally (factor, grid.getTimeForX (static_cast<float> (viewport.getViewPositionX() + centre)),
+                              centre);
+            return;
+        }
+
+        const auto amount = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+        scrollBy (-amount * scrollPixels, 0.0f);
+        return;
+    }
+
+    if (zooms)
+    {
+        zoomVertically (factor, position.y - gridArea.getY());
+        return;
+    }
+
+    if (event.mods.isShiftDown() || std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
+    {
+        const auto amount = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+        scrollBy (-amount * scrollPixels, 0.0f);
+        return;
+    }
+
+    scrollBy (0.0f, -wheel.deltaY * scrollPixels);
+}
+
+void EditorView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    handleWheel (event, wheel);
+}
+
+void EditorView::mouseDown (const juce::MouseEvent& event)
+{
+    isDraggingOverview = false;
+
+    if (! getOverviewBounds().contains (event.getPosition()) || document->getSeconds() <= 0.0)
+        return;
+
+    const auto box = getOverviewViewBox();
+    const auto pointerTime = getOverviewTime (static_cast<float> (event.x));
+    const auto firstSecond = grid.getTimeForX (static_cast<float> (viewport.getViewPositionX()));
+    const auto viewSeconds = grid.getTimeForX (static_cast<float> (viewport.getViewWidth()));
+
+    dragOffsetSeconds = box.contains (event.position) ? pointerTime - firstSecond : viewSeconds * 0.5;
+    isDraggingOverview = true;
+
+    scrollToSeconds (pointerTime - dragOffsetSeconds);
+}
+
+void EditorView::mouseDrag (const juce::MouseEvent& event)
+{
+    if (isDraggingOverview)
+        scrollToSeconds (getOverviewTime (static_cast<float> (event.x)) - dragOffsetSeconds);
 }
 
 void EditorView::rebuildWaveform()
 {
     waveform.assign (waveformResolution, 0.0f);
 
-    const auto& recording = document.getRecording();
+    const auto& recording = document->getRecording();
     const auto numSamples = recording.getNumSamples();
 
     if (numSamples <= 0)
@@ -172,32 +312,22 @@ void EditorView::resized()
 {
     auto bounds = getLocalBounds();
 
-    bounds.removeFromBottom (scalerHeight);
-    const auto waveformArea = bounds.removeFromBottom (waveformHeight);
-    juce::ignoreUnused (waveformArea);
+    bounds.removeFromBottom (waveformHeight);
+    bounds.removeFromTop (rulerHeight);
+    bounds.removeFromLeft (keyboardWidth);
 
-    auto rulerArea = bounds.removeFromTop (rulerHeight);
-    rulerArea.removeFromLeft (keyboardWidth);
-
-    auto gridArea = bounds;
-    gridArea.removeFromLeft (keyboardWidth);
-
-    viewport.setBounds (gridArea);
-
-    const auto preferred = grid.getPreferredSize (viewport.getMaximumVisibleWidth(),
-                                                  viewport.getMaximumVisibleHeight());
-    grid.setSize (preferred.x, preferred.y);
-
-    auto scalerArea = getLocalBounds().removeFromBottom (scalerHeight).reduced (Metrics::margin, 2);
-    horizontalScaler.setBounds (scalerArea.removeFromLeft (140));
-    scalerArea.removeFromLeft (Metrics::gap);
-    verticalScaler.setBounds (scalerArea.removeFromLeft (110));
+    viewport.setBounds (bounds);
+    resizeGrid();
 }
 
 void EditorView::paintKeyboard (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
 {
     graphics.setColour (Palette::bar);
     graphics.fillRect (bounds);
+
+    // Keys scroll past both edges; keep them off the ruler and the waveform overview.
+    const juce::Graphics::ScopedSaveState saveState { graphics };
+    graphics.reduceClipRegion (bounds);
 
     const auto scrollY = static_cast<float> (viewport.getViewPositionY());
     const auto rowHeight = grid.getRowHeight();
@@ -222,7 +352,7 @@ void EditorView::paintKeyboard (juce::Graphics& graphics, juce::Rectangle<int> b
         if (midiNote % 12 != 0 || rowHeight < 9.0f)
             continue;
 
-        graphics.setColour (Palette::ground);
+        graphics.setColour (Palette::dimText);
         graphics.setFont (juce::FontOptions { std::min (rowHeight - 3.0f, 10.0f) });
         graphics.drawText (Scale::getNoteName (midiNote), key.reduced (3.0f, 0.0f),
                            juce::Justification::centredRight, false);
@@ -236,7 +366,7 @@ void EditorView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> boun
 
     const auto scrollX = static_cast<float> (viewport.getViewPositionX());
     const auto spacing = chooseLabelSpacing (grid.getPixelsPerSecond());
-    const auto seconds = document.getSeconds();
+    const auto seconds = document->getSeconds();
 
     graphics.setFont (juce::FontOptions { TypeScale::label });
 
@@ -263,20 +393,20 @@ void EditorView::paintWaveform (juce::Graphics& graphics, juce::Rectangle<int> b
     graphics.setColour (Palette::well);
     graphics.fillRect (bounds);
 
-    if (waveform.empty() || document.getSeconds() <= 0.0)
+    if (waveform.empty() || document->getSeconds() <= 0.0)
         return;
 
     const auto centre = static_cast<float> (bounds.getCentreY());
     const auto scale = static_cast<float> (bounds.getHeight()) * 0.45f;
 
-    graphics.setColour (Palette::silhouette);
+    graphics.setColour (tabColour.withAlpha (0.35f));
 
     for (int x = bounds.getX(); x < bounds.getRight(); ++x)
     {
         const auto time = static_cast<double> (x - bounds.getX()) / static_cast<double> (bounds.getWidth())
-                        * document.getSeconds();
+                        * document->getSeconds();
         const auto pointIndex = juce::jlimit (0, static_cast<int> (waveform.size()) - 1,
-                                              static_cast<int> (time / document.getSeconds()
+                                              static_cast<int> (time / document->getSeconds()
                                                                 * static_cast<double> (waveform.size())));
 
         const auto height = waveform[static_cast<std::size_t> (pointIndex)] * scale;
@@ -291,16 +421,65 @@ void EditorView::paintWaveform (juce::Graphics& graphics, juce::Rectangle<int> b
     const auto toX = [&bounds, this] (double time)
     {
         return static_cast<float> (bounds.getX())
-             + static_cast<float> (time / document.getSeconds() * static_cast<double> (bounds.getWidth()));
+             + static_cast<float> (time / document->getSeconds() * static_cast<double> (bounds.getWidth()));
     };
 
-    graphics.setColour (Palette::accent.withAlpha (0.14f));
-    graphics.fillRect (toX (viewFirst), static_cast<float> (bounds.getY()),
-                       toX (viewLast) - toX (viewFirst), static_cast<float> (bounds.getHeight()));
+    const auto view = juce::Rectangle<float> (toX (viewFirst), static_cast<float> (bounds.getY()),
+                                              toX (viewLast) - toX (viewFirst), static_cast<float> (bounds.getHeight()))
+                          .reduced (0.0f, 2.0f);
 
+    graphics.setColour (tabColour.withAlpha (0.14f));
+    graphics.fillRect (view);
+    graphics.setColour (tabColour.withAlpha (0.6f));
+    graphics.drawRect (view, 1.0f);
+
+    Flat::verticalLine (graphics, toX (playheadSeconds), static_cast<float> (bounds.getY()),
+                        static_cast<float> (bounds.getBottom()), tabColour.brighter (0.6f), 1.0f);
+}
+
+void EditorView::setBusy (bool isBusy)
+{
+    if (busy == isBusy)
+        return;
+
+    busy = isBusy;
+
+    if (busy)
+        startTimerHz (60);
+    else
+        stopTimer();
+
+    repaint();
+}
+
+void EditorView::timerCallback()
+{
+    spinnerAngle = std::fmod (spinnerAngle + 0.11f, juce::MathConstants<float>::twoPi);
+    repaint (viewport.getBounds());
+}
+
+void EditorView::paintSpinner (juce::Graphics& graphics) const
+{
+    const auto area = viewport.getBounds().toFloat();
+
+    graphics.setColour (Palette::ground.withAlpha (0.6f));
+    graphics.fillRect (area);
+
+    const auto popup = juce::Rectangle<float> { 84.0f, 84.0f }.withCentre (area.getCentre());
+    Flat::panel (graphics, popup, Palette::bar, Palette::edge);
+
+    const auto circle = popup.reduced (24.0f);
+
+    juce::Path track;
+    track.addEllipse (circle);
+    graphics.setColour (Palette::edge);
+    graphics.strokePath (track, juce::PathStrokeType (3.0f));
+
+    juce::Path arc;
+    arc.addCentredArc (circle.getCentreX(), circle.getCentreY(), circle.getWidth() * 0.5f, circle.getHeight() * 0.5f,
+                       0.0f, spinnerAngle, spinnerAngle + juce::MathConstants<float>::pi * 0.6f, true);
     graphics.setColour (Palette::accent);
-    graphics.fillRect (toX (playheadSeconds), static_cast<float> (bounds.getY()),
-                       1.0f, static_cast<float> (bounds.getHeight()));
+    graphics.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 void EditorView::paintCaption (juce::Graphics& graphics) const
@@ -325,7 +504,6 @@ void EditorView::paint (juce::Graphics& graphics)
 
     auto bounds = getLocalBounds();
 
-    bounds.removeFromBottom (scalerHeight);
     paintWaveform (graphics, bounds.removeFromBottom (waveformHeight));
 
     auto rulerArea = bounds.removeFromTop (rulerHeight);
@@ -340,5 +518,8 @@ void EditorView::paint (juce::Graphics& graphics)
 void EditorView::paintOverChildren (juce::Graphics& graphics)
 {
     paintCaption (graphics);
+
+    if (busy)
+        paintSpinner (graphics);
 }
 }

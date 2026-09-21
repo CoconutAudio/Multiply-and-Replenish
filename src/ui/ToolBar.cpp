@@ -2,155 +2,94 @@
 
 #include "ui/PanelLookAndFeel.h"
 
-namespace tuner
+#include <algorithm>
+
+namespace multiplyandreplenish
 {
 namespace
 {
     using Palette = PanelLookAndFeel::Palette;
-    using TypeScale = PanelLookAndFeel::TypeScale;
     using Metrics = PanelLookAndFeel::Metrics;
+
+    constexpr int buttonSize = 36;
+    constexpr int comboHeight = 28;
 }
 
-ToolBar::ToolBar (EditDocument& documentToEdit)
-    : document (documentToEdit)
+ToolBar::ToolBar (bool canSave)
+    : showsSave (canSave)
 {
     setOpaque (true);
-    document.addListener (this);
 
-    for (auto* button : { &openButton, &exportButton, &undoButton, &redoButton, &analyseButton,
-                          &retuneButton, &selectTool, &drawTool, &splitTool, &joinTool })
+    for (auto* button : { &openButton, &undoButton, &redoButton, &playButton, &editButton, &cutButton,
+                          &transposeUpButton, &transposeDownButton })
         addAndMakeVisible (button);
 
-    retuneButton.onClick = [this] { document.retuneAll(); };
+    if (showsSave)
+        addAndMakeVisible (saveButton);
 
     openButton.onClick = [this] { if (onOpen != nullptr) onOpen(); };
-    exportButton.onClick = [this] { if (onExport != nullptr) onExport(); };
-    analyseButton.onClick = [this] { if (onAnalyse != nullptr) onAnalyse(); };
+    saveButton.onClick = [this] { if (onSave != nullptr) onSave(); };
+    undoButton.onClick = [this] { if (onUndo != nullptr) onUndo(); };
+    redoButton.onClick = [this] { if (onRedo != nullptr) onRedo(); };
+    playButton.onClick = [this] { if (onPlayPause != nullptr) onPlayPause(); };
+    editButton.onClick = [this] { chooseTool (EditTool::edit); };
+    cutButton.onClick = [this] { chooseTool (EditTool::cut); };
+    transposeUpButton.onClick = [this] { if (onTranspose != nullptr) onTranspose (1); };
+    transposeDownButton.onClick = [this] { if (onTranspose != nullptr) onTranspose (-1); };
 
-    undoButton.onClick = [this] { document.getUndoManager().undo(); };
-    redoButton.onClick = [this] { document.getUndoManager().redo(); };
-
-    const auto chooseTool = [this] (NoteGrid::Tool tool)
-    {
-        setTool (tool);
-
-        if (onToolChosen != nullptr)
-            onToolChosen (tool);
-    };
-
-    selectTool.onClick = [chooseTool] { chooseTool (NoteGrid::Tool::select); };
-    drawTool.onClick = [chooseTool] { chooseTool (NoteGrid::Tool::draw); };
-    splitTool.onClick = [chooseTool] { chooseTool (NoteGrid::Tool::split); };
-    joinTool.onClick = [chooseTool] { chooseTool (NoteGrid::Tool::join); };
-
-    for (auto* button : { &selectTool, &drawTool, &splitTool, &joinTool })
-        button->setClickingTogglesState (true);
-
-    selectTool.setToggleState (true, juce::dontSendNotification);
+    editButton.setToggleState (true, juce::dontSendNotification);
 
     keyBox.addItemList (Scale::getPitchClassNames(), 1);
     keyBox.setSelectedItemIndex (0, juce::dontSendNotification);
-    keyBox.onChange = [this] { applyScale(); };
+    keyBox.setTooltip ("Key");
+    keyBox.onChange = [this] { scaleBoxesChanged(); };
     addAndMakeVisible (keyBox);
 
     scaleBox.addItemList (Scale::getTypeNames(), 1);
     scaleBox.setSelectedItemIndex (0, juce::dontSendNotification);
-    scaleBox.onChange = [this] { applyScale(); };
+    scaleBox.setTooltip ("Scale");
+    scaleBox.onChange = [this] { scaleBoxesChanged(); };
     addAndMakeVisible (scaleBox);
 
-    detectorBox.addItemList (EngineOptions::getDetectorNames(), 1);
-    detectorBox.setSelectedItemIndex (0, juce::dontSendNotification);
-    addAndMakeVisible (detectorBox);
-
-    const auto configureSlider = [this] (juce::Slider& slider, double minimum, double maximum,
-                                         double interval, double value, const juce::String& suffix)
-    {
-        slider.setRange (minimum, maximum, interval);
-        slider.setValue (value, juce::dontSendNotification);
-        slider.setTextValueSuffix (suffix);
-        slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
-        slider.onValueChange = [this] { applyCorrection(); };
-        addAndMakeVisible (slider);
-    };
-
-    const auto& settings = document.getCorrectionSettings();
-
-    configureSlider (correctionSlider, 0.0, 100.0, 1.0, 100.0 * settings.correction, "%");
-    configureSlider (transitionSlider, 0.0, 300.0, 5.0, settings.transitionMilliseconds, " ms");
-    configureSlider (vibratoSlider, 0.0, 200.0, 1.0, 100.0 * settings.vibrato, "%");
-    configureSlider (driftSlider, 0.0, 200.0, 1.0, 100.0 * settings.drift, "%");
-
-    labelled = { { &keyBox, "KEY" },
-                 { &scaleBox, "SCALE" },
-                 { &detectorBox, "PITCH" },
-                 { &correctionSlider, "CORRECTION" },
-                 { &transitionSlider, "TRANSITION" },
-                 { &vibratoSlider, "VIBRATO" },
-                 { &driftSlider, "DRIFT" } };
+    setUndoRedoEnabled (false, false);
 }
 
-ToolBar::~ToolBar()
+void ToolBar::setPlaying (bool isPlaying)
 {
-    document.removeListener (this);
+    if (isPlayingNow == isPlaying)
+        return;
+
+    isPlayingNow = isPlaying;
+    playButton.setGlyph (isPlaying ? Icons::Glyph::pause : Icons::Glyph::play);
+    playButton.setTooltip (isPlaying ? "Pause" : "Play");
 }
 
-void ToolBar::setTool (NoteGrid::Tool tool)
+void ToolBar::setUndoRedoEnabled (bool canUndo, bool canRedo)
 {
-    selectTool.setToggleState (tool == NoteGrid::Tool::select, juce::dontSendNotification);
-    drawTool.setToggleState (tool == NoteGrid::Tool::draw, juce::dontSendNotification);
-    splitTool.setToggleState (tool == NoteGrid::Tool::split, juce::dontSendNotification);
-    joinTool.setToggleState (tool == NoteGrid::Tool::join, juce::dontSendNotification);
+    undoButton.setEnabled (canUndo);
+    redoButton.setEnabled (canRedo);
 }
 
-void ToolBar::setHostMode (bool isHosted)
+void ToolBar::setScale (const Scale& scale)
 {
-    const std::initializer_list<juce::Component*> hostProvided { &openButton, &exportButton,
-                                                                 &analyseButton, &detectorBox };
-
-    for (auto* component : hostProvided)
-        component->setVisible (! isHosted);
-
-    resized();
+    keyBox.setSelectedItemIndex (scale.getTonic(), juce::dontSendNotification);
+    scaleBox.setSelectedItemIndex (static_cast<int> (scale.getType()), juce::dontSendNotification);
 }
 
-void ToolBar::setBusy (bool isBusy)
+void ToolBar::chooseTool (EditTool tool)
 {
-    for (auto* button : { &openButton, &exportButton, &analyseButton })
-        button->setEnabled (! isBusy);
+    editButton.setToggleState (tool == EditTool::edit, juce::dontSendNotification);
+    cutButton.setToggleState (tool == EditTool::cut, juce::dontSendNotification);
+
+    if (onToolChosen != nullptr)
+        onToolChosen (tool);
 }
 
-EngineOptions ToolBar::getEngineOptions() const
+void ToolBar::scaleBoxesChanged()
 {
-    EngineOptions options;
-
-    options.detector = static_cast<EngineOptions::Detector> (std::max (0, detectorBox.getSelectedItemIndex()));
-
-    return options;
-}
-
-void ToolBar::melodyChanged()
-{
-    undoButton.setEnabled (document.getUndoManager().canUndo());
-    redoButton.setEnabled (document.getUndoManager().canRedo());
-}
-
-void ToolBar::applyScale()
-{
-    document.setScale (Scale { static_cast<Scale::Type> (std::max (0, scaleBox.getSelectedItemIndex())),
-                               std::max (0, keyBox.getSelectedItemIndex()) },
-                       true);
-}
-
-void ToolBar::applyCorrection()
-{
-    auto settings = document.getCorrectionSettings();
-
-    settings.correction = static_cast<float> (correctionSlider.getValue() / 100.0);
-    settings.transitionMilliseconds = static_cast<float> (transitionSlider.getValue());
-    settings.vibrato = static_cast<float> (vibratoSlider.getValue() / 100.0);
-    settings.drift = static_cast<float> (driftSlider.getValue() / 100.0);
-
-    document.setCorrectionSettings (settings);
+    if (onScaleChanged != nullptr)
+        onScaleChanged (Scale { static_cast<Scale::Type> (std::max (0, scaleBox.getSelectedItemIndex())),
+                                std::max (0, keyBox.getSelectedItemIndex()) });
 }
 
 void ToolBar::paint (juce::Graphics& graphics)
@@ -159,63 +98,40 @@ void ToolBar::paint (juce::Graphics& graphics)
 
     graphics.setColour (Palette::edge);
     graphics.fillRect (0, getHeight() - 1, getWidth(), 1);
-
-    for (const auto& [component, label] : labelled)
-        PanelLookAndFeel::drawTrackedText (graphics,
-                                           label,
-                                           juce::Rectangle<float> (static_cast<float> (component->getX()),
-                                                                   static_cast<float> (component->getY()) - 13.0f,
-                                                                   static_cast<float> (component->getWidth()),
-                                                                   12.0f),
-                                           juce::Justification::left,
-                                           TypeScale::label,
-                                           Metrics::tracking,
-                                           Palette::dimText);
 }
 
 void ToolBar::resized()
 {
-    auto bounds = getLocalBounds().reduced (Metrics::margin, 6);
+    auto bounds = getLocalBounds().reduced (Metrics::margin, 0);
 
-    auto top = bounds.removeFromTop (24);
+    playButton.setBounds (juce::Rectangle<int> (buttonSize + 8, buttonSize).withCentre (getLocalBounds().getCentre()));
 
-    const auto place = [&top] (juce::Component& component, int width)
+    auto right = bounds.removeFromRight (buttonSize * 2 + Metrics::gap);
+    redoButton.setBounds (right.removeFromRight (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
+    right.removeFromRight (Metrics::gap);
+    undoButton.setBounds (right.removeFromRight (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
+
+    openButton.setBounds (bounds.removeFromLeft (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
+
+    if (showsSave)
     {
-        component.setBounds (top.removeFromLeft (width).reduced (1, 0));
-        top.removeFromLeft (4);
-    };
+        bounds.removeFromLeft (Metrics::gap);
+        saveButton.setBounds (bounds.removeFromLeft (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
+    }
 
-    place (openButton, 66);
-    place (exportButton, 76);
-    top.removeFromLeft (Metrics::gap);
-    place (undoButton, 60);
-    place (redoButton, 60);
-    top.removeFromLeft (Metrics::gap * 2);
-    place (selectTool, 68);
-    place (drawTool, 60);
-    place (splitTool, 60);
-    place (joinTool, 56);
+    bounds.removeFromLeft (Metrics::margin + Metrics::gap);
 
-    place (analyseButton, 84);
-    place (retuneButton, 96);
-    top.removeFromLeft (Metrics::gap);
-    place (detectorBox, 92);
+    for (auto* button : { &editButton, &cutButton })
+        button->setBounds (bounds.removeFromLeft (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
 
-    bounds.removeFromTop (14);
+    bounds.removeFromLeft (Metrics::margin);
 
-    auto lower = bounds.removeFromTop (22);
+    for (auto* button : { &transposeUpButton, &transposeDownButton })
+        button->setBounds (bounds.removeFromLeft (buttonSize).withSizeKeepingCentre (buttonSize, buttonSize));
 
-    const auto placeLower = [&lower] (juce::Component& component, int width)
-    {
-        component.setBounds (lower.removeFromLeft (width));
-        lower.removeFromLeft (Metrics::gap * 2);
-    };
-
-    placeLower (keyBox, 62);
-    placeLower (scaleBox, 122);
-    placeLower (correctionSlider, 178);
-    placeLower (transitionSlider, 190);
-    placeLower (vibratoSlider, 178);
-    placeLower (driftSlider, 178);
+    bounds.removeFromLeft (Metrics::margin + Metrics::gap);
+    keyBox.setBounds (bounds.removeFromLeft (64).withSizeKeepingCentre (64, comboHeight));
+    bounds.removeFromLeft (Metrics::gap);
+    scaleBox.setBounds (bounds.removeFromLeft (150).withSizeKeepingCentre (150, comboHeight));
 }
 }

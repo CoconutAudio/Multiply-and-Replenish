@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
@@ -19,7 +19,7 @@ namespace
     {
         return CoarsePitchQuantiser { 50.0, 1100.0, 255 };
     }
-} // namespace
+}
 
 TEST (PitchConversions, HzToMelMatchesTheReferenceFormula)
 {

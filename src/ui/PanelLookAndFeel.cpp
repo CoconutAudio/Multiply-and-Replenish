@@ -1,96 +1,60 @@
 #include "ui/PanelLookAndFeel.h"
 
-namespace tuner
+#include "ui/Flat.h"
+
+namespace multiplyandreplenish
 {
-namespace
-{
-    juce::GlyphArrangement layOutTrackedText (const juce::String& text, float fontHeight, float tracking)
-    {
-        juce::GlyphArrangement glyphs;
-        glyphs.addLineOfText (juce::Font { juce::FontOptions { fontHeight } }, text, 0.0f, 0.0f);
-
-        for (int glyphIndex = 0; glyphIndex < glyphs.getNumGlyphs(); ++glyphIndex)
-            glyphs.moveRangeOfGlyphs (glyphIndex, 1, static_cast<float> (glyphIndex) * tracking, 0.0f);
-
-        return glyphs;
-    }
-} // namespace
-
 PanelLookAndFeel::PanelLookAndFeel()
 {
     setColour (juce::ResizableWindow::backgroundColourId, Palette::ground);
     setColour (juce::PopupMenu::backgroundColourId, Palette::bar);
+    setColour (juce::ScrollBar::thumbColourId, Palette::edge);
     setColour (juce::PopupMenu::textColourId, Palette::text);
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, Palette::accent.withAlpha (0.25f));
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, Palette::accent.withAlpha (0.3f));
     setColour (juce::PopupMenu::highlightedTextColourId, Palette::text);
-    setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    setColour (juce::TextButton::textColourOffId, Palette::text);
-    setColour (juce::TextButton::textColourOnId, Palette::ground);
+    setColour (juce::ComboBox::textColourId, Palette::text);
+    setColour (juce::ComboBox::backgroundColourId, Palette::card);
+    setColour (juce::TooltipWindow::backgroundColourId, Palette::cardRaised);
+    setColour (juce::TooltipWindow::textColourId, Palette::text);
+    setColour (juce::TooltipWindow::outlineColourId, Palette::edge);
 }
 
-void PanelLookAndFeel::drawTrackedText (juce::Graphics& graphics,
-                                        const juce::String& text,
-                                        juce::Rectangle<float> bounds,
-                                        juce::Justification justification,
-                                        float fontHeight,
-                                        float tracking,
-                                        juce::Colour colour)
+void PanelLookAndFeel::drawComboBox (juce::Graphics& graphics,
+                                     int width,
+                                     int height,
+                                     bool isButtonDown,
+                                     int,
+                                     int,
+                                     int,
+                                     int,
+                                     juce::ComboBox& box)
 {
-    if (text.isEmpty())
-        return;
+    const juce::Rectangle<float> bounds { 0.0f, 0.0f, static_cast<float> (width), static_cast<float> (height) };
+    const auto isHot = box.isMouseOver (true) || isButtonDown;
 
-    auto glyphs = layOutTrackedText (text, fontHeight, tracking);
-    const auto extent = glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true);
+    Flat::panel (graphics, bounds.reduced (0.5f), isHot ? Palette::cardRaised : Palette::card,
+                 box.hasKeyboardFocus (true) ? Palette::accent : Palette::edge);
 
-    auto x = bounds.getX();
+    const auto arrowCentre = juce::Point<float> { static_cast<float> (width) - 12.0f, bounds.getCentreY() };
 
-    if (justification.testFlags (juce::Justification::horizontallyCentred))
-        x = bounds.getCentreX() - extent.getWidth() * 0.5f;
-    else if (justification.testFlags (juce::Justification::right))
-        x = bounds.getRight() - extent.getWidth();
+    juce::Path arrow;
+    arrow.startNewSubPath (arrowCentre.x - 3.5f, arrowCentre.y - 1.5f);
+    arrow.lineTo (arrowCentre.x, arrowCentre.y + 2.0f);
+    arrow.lineTo (arrowCentre.x + 3.5f, arrowCentre.y - 1.5f);
 
-    graphics.setColour (colour);
-    glyphs.draw (graphics, juce::AffineTransform::translation (x - extent.getX(), bounds.getCentreY()));
+    graphics.setColour (box.isEnabled() ? Palette::dimText : Palette::dimText.withAlpha (0.4f));
+    graphics.strokePath (arrow, juce::PathStrokeType { 1.5f });
 }
 
-float PanelLookAndFeel::getTrackedTextWidth (const juce::String& text, float fontHeight, float tracking)
+void PanelLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
 {
-    if (text.isEmpty())
-        return 0.0f;
-
-    const auto glyphs = layOutTrackedText (text, fontHeight, tracking);
-    return glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), true).getWidth();
+    label.setBounds (10, 1, box.getWidth() - 30, box.getHeight() - 2);
+    label.setFont (getComboBoxFont (box));
 }
 
-void PanelLookAndFeel::drawButtonBackground (juce::Graphics& graphics,
-                                             juce::Button& button,
-                                             const juce::Colour&,
-                                             bool shouldDrawAsHighlighted,
-                                             bool shouldDrawAsDown)
+juce::Font PanelLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
-    const auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
-
-    graphics.setColour (shouldDrawAsDown        ? Palette::accent.withAlpha (0.22f)
-                        : shouldDrawAsHighlighted ? Palette::edge
-                                                  : Palette::well);
-    graphics.fillRect (bounds);
-
-    graphics.setColour (shouldDrawAsHighlighted || shouldDrawAsDown ? Palette::accent : Palette::edge);
-    graphics.drawRect (bounds, Metrics::hairline);
-}
-
-void PanelLookAndFeel::drawButtonText (juce::Graphics& graphics,
-                                       juce::TextButton& button,
-                                       bool,
-                                       bool)
-{
-    drawTrackedText (graphics,
-                     button.getButtonText().toUpperCase(),
-                     button.getLocalBounds().toFloat(),
-                     juce::Justification::centred,
-                     TypeScale::label,
-                     Metrics::tracking,
-                     button.isEnabled() ? Palette::text : Palette::dimText);
+    return juce::Font { juce::FontOptions { TypeScale::value } };
 }
 
 void PanelLookAndFeel::drawPopupMenuBackgroundWithOptions (juce::Graphics& graphics,
@@ -100,10 +64,7 @@ void PanelLookAndFeel::drawPopupMenuBackgroundWithOptions (juce::Graphics& graph
 {
     const juce::Rectangle<float> bounds { 0.0f, 0.0f, static_cast<float> (width), static_cast<float> (height) };
 
-    graphics.setColour (Palette::bar);
-    graphics.fillRect (bounds);
-    graphics.setColour (Palette::edge);
-    graphics.drawRect (bounds, Metrics::hairline);
+    Flat::panel (graphics, bounds.reduced (0.5f), Palette::bar, Palette::edge);
 }
 
 juce::Font PanelLookAndFeel::getPopupMenuFont()
@@ -129,13 +90,14 @@ void PanelLookAndFeel::drawScrollbar (juce::Graphics& graphics,
     if (thumbSize <= 0)
         return;
 
-    const auto thumb = isScrollbarVertical
-                           ? juce::Rectangle<int> { x + 2, thumbStartPosition, width - 4, thumbSize }
-                           : juce::Rectangle<int> { thumbStartPosition, y + 2, thumbSize, height - 4 };
+    const auto thumb = (isScrollbarVertical
+                            ? juce::Rectangle<int> { x + 2, thumbStartPosition, width - 4, thumbSize }
+                            : juce::Rectangle<int> { thumbStartPosition, y + 2, thumbSize, height - 4 })
+                           .toFloat();
 
     graphics.setColour (isMouseDown ? Palette::accent
-                        : isMouseOver ? Palette::edge.brighter (0.6f)
-                                      : Palette::edge.brighter (0.3f));
+                        : isMouseOver ? Palette::edge.brighter (0.5f)
+                                      : Palette::edge);
     graphics.fillRect (thumb);
 }
 
@@ -155,18 +117,18 @@ void PanelLookAndFeel::drawLinearSlider (juce::Graphics& graphics,
                                           static_cast<float> (width),
                                           static_cast<float> (height) };
 
-    const auto track = bounds.withSizeKeepingCentre (bounds.getWidth(), 2.0f);
+    const auto track = bounds.withSizeKeepingCentre (bounds.getWidth(), 3.0f);
 
-    graphics.setColour (Palette::edge);
+    graphics.setColour (Palette::well);
     graphics.fillRect (track);
 
-    graphics.setColour (Palette::accent.withAlpha (0.7f));
+    graphics.setColour (Palette::accent);
     graphics.fillRect (track.withRight (sliderPosition));
 
-    const juce::Rectangle<float> thumb { sliderPosition - 3.0f, bounds.getY() + 2.0f, 6.0f, bounds.getHeight() - 4.0f };
+    const auto thumb = juce::Rectangle<float> { 6.0f, bounds.getHeight() - 4.0f }.withCentre ({ sliderPosition, bounds.getCentreY() });
 
-    graphics.setColour (slider.isMouseOverOrDragging() ? Palette::accent : Palette::dimText);
+    graphics.setColour (slider.isMouseOverOrDragging() ? Palette::text : Palette::dimText);
     graphics.fillRect (thumb);
 }
 
-} // namespace tuner
+}

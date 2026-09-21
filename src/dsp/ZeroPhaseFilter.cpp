@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 ZeroPhaseFilter::ZeroPhaseFilter (std::vector<BiquadCoefficients> sections, int padLength)
     : cascade (std::move (sections)),

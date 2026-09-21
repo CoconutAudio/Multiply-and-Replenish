@@ -1,8 +1,8 @@
-#include "edit/Scale.h"
+#include "common/Scale.h"
 
 #include <gtest/gtest.h>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 TEST (ScaleTest, ChromaticAcceptsEveryNote)
 {

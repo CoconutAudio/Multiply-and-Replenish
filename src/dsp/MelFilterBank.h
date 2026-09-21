@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 /** @brief Which mel scale a filter bank is spaced on. */
 enum class MelScale
@@ -10,7 +10,7 @@ enum class MelScale
     /** @brief The piecewise linear-then-logarithmic scale librosa uses by default. */
     slaney,
 
-    /** @brief 1127 ln(1 + f/700), as used by HTK and by RMVPE's front end. */
+    /** @brief 1127 ln(1 + f/700), the scale HTK uses. */
     htk
 };
 

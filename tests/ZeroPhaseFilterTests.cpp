@@ -7,7 +7,7 @@
 #include <numbers>
 #include <vector>
 
-using namespace tuner;
+using namespace multiplyandreplenish;
 
 namespace
 {
@@ -48,7 +48,7 @@ namespace
 
         return std::sqrt (sumOfSquares / static_cast<double> (lastSample - firstSample));
     }
-} // namespace
+}
 
 class ZeroPhaseFilterTest : public testing::Test
 {
@@ -132,10 +132,10 @@ TEST_F (ZeroPhaseFilterTest, TheFilterIsZeroPhase)
 
 TEST_F (ZeroPhaseFilterTest, TheHighPassMatchesTheReferenceFiltfilt)
 {
-    const juce::File fixtures { TUNER_TEST_FIXTURE_DIR };
+    const juce::File fixtures { MULTIPLYANDREPLENISH_TEST_FIXTURE_DIR };
 
-    const auto sourceFixture = tuner::test::FixtureMatrix::load (fixtures.getChildFile ("test_signal.bin"));
-    const auto expected = tuner::test::FixtureMatrix::load (fixtures.getChildFile ("expected_high_pass.bin"));
+    const auto sourceFixture = multiplyandreplenish::test::FixtureMatrix::load (fixtures.getChildFile ("test_signal.bin"));
+    const auto expected = multiplyandreplenish::test::FixtureMatrix::load (fixtures.getChildFile ("expected_high_pass.bin"));
 
     ASSERT_TRUE (sourceFixture.isValid()) << sourceFixture.getError();
     ASSERT_TRUE (expected.isValid()) << expected.getError();

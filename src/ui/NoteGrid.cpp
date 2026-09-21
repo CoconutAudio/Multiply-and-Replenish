@@ -1,11 +1,12 @@
 #include "ui/NoteGrid.h"
 
+#include "ui/Flat.h"
 #include "ui/PanelLookAndFeel.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace tuner
+namespace multiplyandreplenish
 {
 namespace
 {
@@ -31,27 +32,41 @@ namespace
 }
 
 NoteGrid::NoteGrid (EditDocument& documentToEdit)
-    : document (documentToEdit)
+    : document (&documentToEdit)
 {
     setOpaque (true);
     setWantsKeyboardFocus (true);
-    document.addListener (this);
+    document->addListener (this);
 }
 
 NoteGrid::~NoteGrid()
 {
-    document.removeListener (this);
+    document->removeListener (this);
 }
 
-void NoteGrid::setTool (Tool newTool)
+void NoteGrid::setDocument (EditDocument& newDocument)
 {
-    if (tool == newTool)
+    if (document == &newDocument)
         return;
 
-    tool = newTool;
+    document->removeListener (this);
+    document = &newDocument;
+    document->addListener (this);
 
-    setMouseCursor (tool == Tool::draw ? juce::MouseCursor::CrosshairCursor
-                                       : juce::MouseCursor::NormalCursor);
+    drag = Drag::none;
+    repaint();
+}
+
+void NoteGrid::setTool (EditTool newTool)
+{
+    tool = newTool;
+    setMouseCursor (tool == EditTool::cut ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor);
+    repaint();
+}
+
+void NoteGrid::setTabColour (juce::Colour colour)
+{
+    tabColour = colour;
     repaint();
 }
 
@@ -64,7 +79,7 @@ void NoteGrid::setZoom (float newPixelsPerSecond, float newRowHeight)
 
 juce::Point<int> NoteGrid::getPreferredSize (int minimumWidth, int minimumHeight) const
 {
-    const auto width = juce::roundToInt (document.getSeconds() * static_cast<double> (pixelsPerSecond));
+    const auto width = juce::roundToInt (document->getSeconds() * static_cast<double> (pixelsPerSecond));
 
     return { std::max (width, minimumWidth),
              std::max (juce::roundToInt (rowHeight * static_cast<float> (numRows)), minimumHeight) };
@@ -94,13 +109,13 @@ double NoteGrid::getTimeForX (float x) const
 
 int NoteGrid::getFrameForX (float x) const
 {
-    return juce::jlimit (0, std::max (0, document.getNumFrames() - 1),
-                         document.getFrameForTime (getTimeForX (x)));
+    return juce::jlimit (0, std::max (0, document->getNumFrames() - 1),
+                         document->getFrameForTime (getTimeForX (x)));
 }
 
 int NoteGrid::getCentreNote() const
 {
-    const auto& melody = document.getSungMelody();
+    const auto& melody = document->getSungMelody();
 
     auto lowest = 72;
     auto highest = 48;
@@ -129,30 +144,22 @@ void NoteGrid::setPlayheadPosition (double seconds)
     repaint();
 }
 
-void NoteGrid::setLoopRange (double firstSecond, double lastSecond, bool shouldShow)
-{
-    loopFirstSecond = firstSecond;
-    loopLastSecond = lastSecond;
-    showLoop = shouldShow;
-    repaint();
-}
-
 void NoteGrid::recordingChanged() { repaint(); }
 void NoteGrid::melodyChanged() { repaint(); }
 void NoteGrid::selectionChanged() { repaint(); }
 
 juce::Rectangle<float> NoteGrid::getNoteBounds (const Note& note) const
 {
-    const auto first = getXForTime (document.getTimeForFrame (note.firstFrame));
-    const auto last = getXForTime (document.getTimeForFrame (note.lastFrame));
-    const auto centre = getYForPitch (static_cast<double> (note.targetNote));
+    const auto first = getXForTime (document->getTimeForFrame (note.firstFrame));
+    const auto last = getXForTime (document->getTimeForFrame (note.lastFrame));
+    const auto centre = getYForPitch (static_cast<double> (note.getSoundingSemitones()));
 
     return { first, centre - rowHeight * 0.5f, std::max (last - first, 2.0f), rowHeight };
 }
 
 int NoteGrid::getNoteIndexAt (juce::Point<float> position) const
 {
-    const auto& notes = document.getNotes();
+    const auto& notes = document->getNotes();
 
     for (int index = 0; index < static_cast<int> (notes.size()); ++index)
         if (getNoteBounds (notes[static_cast<std::size_t> (index)]).expanded (0.0f, 2.0f).contains (position))
@@ -165,7 +172,7 @@ std::vector<int> NoteGrid::getSelectedIndices() const
 {
     std::vector<int> indices;
 
-    const auto& selection = document.getSelection();
+    const auto& selection = document->getSelection();
 
     for (int range = 0; range < selection.getNumRanges(); ++range)
         for (auto index = selection.getRange (range).getStart(); index < selection.getRange (range).getEnd(); ++index)
@@ -199,10 +206,10 @@ void NoteGrid::paintRows (juce::Graphics& graphics) const
             graphics.fillRect (0.0f, row.getBottom() - 1.0f, static_cast<float> (getWidth()), 0.5f);
         }
 
-        if (! document.getScale().contains (midiNote))
+        if (! document->getScale().contains (midiNote))
             continue;
 
-        graphics.setColour (Palette::accent.withAlpha (0.05f));
+        graphics.setColour (tabColour.withAlpha (0.10f));
         graphics.fillRect (row.withWidth (3.0f));
     }
 }
@@ -210,7 +217,7 @@ void NoteGrid::paintRows (juce::Graphics& graphics) const
 void NoteGrid::paintTimeGrid (juce::Graphics& graphics) const
 {
     const auto spacing = chooseGridSpacing (pixelsPerSecond);
-    const auto seconds = document.getSeconds();
+    const auto seconds = document->getSeconds();
 
     graphics.setColour (Palette::rule);
 
@@ -226,7 +233,7 @@ void NoteGrid::paintCurve (juce::Graphics& graphics,
     if (semitones.empty())
         return;
 
-    const auto& melody = document.getSungMelody();
+    const auto& melody = document->getSungMelody();
 
     juce::Path path;
     auto isDrawing = false;
@@ -241,7 +248,7 @@ void NoteGrid::paintCurve (juce::Graphics& graphics,
             continue;
         }
 
-        const auto x = getXForTime (document.getTimeForFrame (frameIndex));
+        const auto x = getXForTime (document->getTimeForFrame (frameIndex));
         const auto y = getYForPitch (static_cast<double> (pitch));
 
         if (! isDrawing)
@@ -256,69 +263,58 @@ void NoteGrid::paintCurve (juce::Graphics& graphics,
     }
 
     graphics.setColour (colour);
-    graphics.strokePath (path, juce::PathStrokeType (thickness));
+    graphics.strokePath (path, juce::PathStrokeType { thickness });
 }
 
 void NoteGrid::paintNotes (juce::Graphics& graphics) const
 {
-    const auto& notes = document.getNotes();
-    const auto& selection = document.getSelection();
+    const auto& notes = document->getNotes();
+    const auto& selection = document->getSelection();
 
     for (int index = 0; index < static_cast<int> (notes.size()); ++index)
     {
         const auto& note = notes[static_cast<std::size_t> (index)];
 
-        auto bounds = getNoteBounds (note);
+        auto bounds = getNoteBounds (note).reduced (0.0f, 1.0f);
 
-        if (drag == Drag::moveNotes && dragSemitones != 0 && selection.contains (index))
-            bounds = bounds.withY (bounds.getY() - static_cast<float> (dragSemitones) * rowHeight);
+        if (drag == Drag::moveNotes && selection.contains (index))
+            bounds = bounds.withY (getYForPitch (static_cast<double> (note.getSoundingSemitones() + getDragShift (note)))
+                                   - rowHeight * 0.5f + 1.0f);
 
         const auto isSelected = selection.contains (index);
-        const auto isMoved = std::abs (note.getError()) > 0.02;
+        const auto isMoved = std::abs (note.getShift()) > 0.02f;
 
-        // Where the note was sung, so that every correction shows what it moved.
-        if (isMoved && note.isEnabled)
+        if (isMoved)
         {
-            const auto sung = bounds.withY (getYForPitch (note.sungPitch) - rowHeight * 0.5f);
+            const auto played = bounds.withY (getYForPitch (note.originalSemitones) - rowHeight * 0.5f + 1.0f);
 
-            graphics.setColour (Palette::silhouette.withAlpha (0.5f));
-            graphics.drawRoundedRectangle (sung.reduced (0.5f), 2.0f, 0.7f);
+            graphics.setColour (tabColour.withAlpha (0.3f));
+            graphics.drawRect (played, 1.0f);
         }
 
-        graphics.setColour (note.isEnabled ? Palette::noteBlock.withAlpha (0.85f)
-                                           : Palette::silhouette.withAlpha (0.6f));
-        graphics.fillRoundedRectangle (bounds, 2.0f);
+        graphics.setColour (isMoved || isSelected ? tabColour : tabColour.withAlpha (0.45f));
+        graphics.fillRect (bounds);
 
-        graphics.setColour (isSelected ? Palette::accent
-                                       : (note.isEnabled ? Palette::accent.withAlpha (0.45f) : Palette::edge));
-        graphics.drawRoundedRectangle (bounds.reduced (0.5f), 2.0f, isSelected ? 1.8f : 1.0f);
+        if (isSelected)
+        {
+            graphics.setColour (juce::Colours::white);
+            graphics.drawRect (bounds, 1.5f);
+        }
 
         if (bounds.getWidth() < 30.0f || rowHeight < 11.0f)
             continue;
 
-        graphics.setColour (isSelected ? Palette::text : Palette::dimText);
+        graphics.setColour (Palette::ground.withAlpha (0.85f));
         graphics.setFont (juce::FontOptions { std::min (rowHeight - 4.0f, 11.0f) });
-        graphics.drawText (Scale::getNoteName (note.targetNote),
-                           bounds.reduced (4.0f, 0.0f), juce::Justification::centredLeft, false);
+        graphics.drawText (Scale::getNoteName (juce::roundToInt (note.getSoundingSemitones())),
+                           bounds.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
     }
-}
-
-void NoteGrid::paintLoop (juce::Graphics& graphics) const
-{
-    if (! showLoop || loopLastSecond <= loopFirstSecond)
-        return;
-
-    const auto first = getXForTime (loopFirstSecond);
-    const auto last = getXForTime (loopLastSecond);
-
-    graphics.setColour (Palette::accent.withAlpha (0.08f));
-    graphics.fillRect (first, 0.0f, last - first, static_cast<float> (getHeight()));
 }
 
 void NoteGrid::paintPlayhead (juce::Graphics& graphics) const
 {
-    graphics.setColour (Palette::accent);
-    graphics.fillRect (getXForTime (playheadSeconds), 0.0f, 1.5f, static_cast<float> (getHeight()));
+    Flat::verticalLine (graphics, getXForTime (playheadSeconds), 0.0f, static_cast<float> (getHeight()),
+                        tabColour.brighter (0.6f));
 }
 
 void NoteGrid::paint (juce::Graphics& graphics)
@@ -327,293 +323,162 @@ void NoteGrid::paint (juce::Graphics& graphics)
 
     paintRows (graphics);
     paintTimeGrid (graphics);
-    paintLoop (graphics);
 
-    paintCurve (graphics, document.getCorrectedMelody().sungSemitones, Palette::silhouette.brighter (0.4f), 1.4f);
+    paintCurve (graphics, document->getComposedMelody().sungSemitones, Palette::sungCurve.withAlpha (0.7f), 1.3f);
     paintNotes (graphics);
-    paintCurve (graphics, document.getCorrectedMelody().correctedSemitones, Palette::accent, 1.8f);
+    paintCurve (graphics, document->getComposedMelody().composedSemitones, tabColour.brighter (0.5f), 1.8f);
 
     if (drag == Drag::rubberBand)
     {
         const auto area = juce::Rectangle<float> (dragOrigin, getMouseXYRelative().toFloat());
 
-        graphics.setColour (Palette::accent.withAlpha (0.12f));
+        graphics.setColour (tabColour.withAlpha (0.14f));
         graphics.fillRect (area);
-        graphics.setColour (Palette::accent.withAlpha (0.5f));
+        graphics.setColour (tabColour.withAlpha (0.7f));
         graphics.drawRect (area, 1.0f);
     }
+
+    if (tool == EditTool::cut && hoverX >= 0.0f)
+        Flat::verticalLine (graphics, hoverX, 0.0f, static_cast<float> (getHeight()), Palette::text, 1.0f);
 
     paintPlayhead (graphics);
 }
 
+float NoteGrid::getDragShift (const Note& note) const
+{
+    if (dragIsFree)
+        return dragDelta;
+
+    return static_cast<float> (document->getScale().snap (static_cast<double> (note.getSoundingSemitones() + dragDelta)))
+         - note.getSoundingSemitones();
+}
+
 void NoteGrid::mouseMove (const juce::MouseEvent& event)
 {
-    if (tool != Tool::select)
+    if (tool == EditTool::cut)
+    {
+        hoverX = event.position.x;
+        repaint();
         return;
+    }
 
     setMouseCursor (getNoteIndexAt (event.position) >= 0 ? juce::MouseCursor::UpDownResizeCursor
                                                          : juce::MouseCursor::NormalCursor);
+}
+
+void NoteGrid::mouseExit (const juce::MouseEvent&)
+{
+    if (hoverX < 0.0f)
+        return;
+
+    hoverX = -1.0f;
+    repaint();
 }
 
 void NoteGrid::mouseDown (const juce::MouseEvent& event)
 {
     grabKeyboardFocus();
 
+    if (tool == EditTool::cut)
+    {
+        const auto noteIndex = getNoteIndexAt (event.position);
+
+        if (noteIndex >= 0)
+            document->splitNote (noteIndex, getFrameForX (event.position.x));
+
+        drag = Drag::none;
+        return;
+    }
+
     dragOrigin = event.position;
-    dragSemitones = 0;
+    dragDelta = 0.0f;
+    dragIsFree = false;
 
     const auto noteIndex = getNoteIndexAt (event.position);
-    const auto frameIndex = getFrameForX (event.position.x);
 
-    if (event.mods.isPopupMenu())
+    if (noteIndex >= 0)
     {
-        if (noteIndex >= 0 && ! document.getSelection().contains (noteIndex))
-            document.selectNote (noteIndex, false);
+        if (! document->getSelection().contains (noteIndex))
+            document->selectNote (noteIndex, event.mods.isShiftDown());
 
-        showMenuFor (noteIndex);
+        drag = Drag::moveNotes;
+        dragNoteIndex = noteIndex;
         return;
     }
 
-    if (event.mods.isAltDown())
-    {
-        drag = Drag::loopRange;
-        return;
-    }
+    if (! event.mods.isShiftDown())
+        document->deselectAll();
 
-    switch (tool)
-    {
-        case Tool::select:
-            if (noteIndex >= 0)
-            {
-                if (! document.getSelection().contains (noteIndex))
-                    document.selectNote (noteIndex, event.mods.isShiftDown());
+    drag = Drag::rubberBand;
 
-                drag = Drag::moveNotes;
-                dragNoteIndex = noteIndex;
-            }
-            else
-            {
-                if (! event.mods.isShiftDown())
-                    document.deselectAll();
-
-                drag = Drag::rubberBand;
-
-                if (onPositionClicked != nullptr)
-                    onPositionClicked (getTimeForX (event.position.x));
-            }
-            break;
-
-        case Tool::draw:
-            drag = Drag::drawPitch;
-            drawFirstFrame = frameIndex;
-            drawnSpan.assign (1, static_cast<float> (getPitchForY (event.position.y)));
-            break;
-
-        case Tool::split:
-            if (noteIndex >= 0)
-                document.splitNote (noteIndex, frameIndex);
-            break;
-
-        case Tool::join:
-            if (noteIndex >= 0 && noteIndex + 1 < static_cast<int> (document.getNotes().size()))
-                document.mergeNotes ({ noteIndex, noteIndex + 1 });
-            break;
-    }
+    if (onPositionClicked != nullptr)
+        onPositionClicked (getTimeForX (event.position.x));
 }
 
 void NoteGrid::mouseDrag (const juce::MouseEvent& event)
 {
-    switch (drag)
+    if (drag == Drag::moveNotes)
     {
-        case Drag::moveNotes:
-        {
-            const auto moved = juce::roundToInt ((dragOrigin.y - event.position.y) / rowHeight);
-
-            if (moved != dragSemitones)
-            {
-                dragSemitones = moved;
-                repaint();
-            }
-
-            break;
-        }
-
-        case Drag::rubberBand:
-            repaint();
-            break;
-
-        case Drag::drawPitch:
-        {
-            const auto frameIndex = getFrameForX (event.position.x);
-            const auto pitch = static_cast<float> (getPitchForY (event.position.y));
-
-            if (frameIndex < drawFirstFrame)
-            {
-                drawnSpan.insert (drawnSpan.begin(),
-                                  static_cast<std::size_t> (drawFirstFrame - frameIndex), pitch);
-                drawFirstFrame = frameIndex;
-            }
-            else
-            {
-                while (static_cast<int> (drawnSpan.size()) <= frameIndex - drawFirstFrame)
-                    drawnSpan.push_back (pitch);
-            }
-
-            drawnSpan[static_cast<std::size_t> (frameIndex - drawFirstFrame)] = pitch;
-            break;
-        }
-
-        case Drag::loopRange:
-            if (onLoopDragged != nullptr)
-                onLoopDragged (getTimeForX (std::min (dragOrigin.x, event.position.x)),
-                               getTimeForX (std::max (dragOrigin.x, event.position.x)));
-            break;
-
-        case Drag::none:
-            break;
+        // Control (Command on a Mac) lets the pitch go anywhere; otherwise it lands on the scale.
+        dragIsFree = event.mods.isCtrlDown() || event.mods.isCommandDown();
+        dragDelta = (dragOrigin.y - event.position.y) / rowHeight;
+        repaint();
+    }
+    else if (drag == Drag::rubberBand)
+    {
+        repaint();
     }
 }
 
 void NoteGrid::mouseUp (const juce::MouseEvent& event)
 {
-    switch (drag)
+    if (drag == Drag::moveNotes)
     {
-        case Drag::moveNotes:
-            if (dragSemitones != 0)
-            {
-                auto indices = getSelectedIndices();
+        dragIsFree = event.mods.isCtrlDown() || event.mods.isCommandDown();
+        dragDelta = (dragOrigin.y - event.position.y) / rowHeight;
 
-                if (indices.empty() && dragNoteIndex >= 0)
-                    indices.push_back (dragNoteIndex);
+        auto indices = getSelectedIndices();
 
-                document.nudgeNotes (indices, dragSemitones);
-            }
+        if (indices.empty() && dragNoteIndex >= 0)
+            indices.push_back (dragNoteIndex);
 
-            break;
+        if (std::abs (dragDelta) >= 0.05f)
+            document->modifyNotes (indices,
+                                   [this] (Note& note)
+                                   {
+                                       note.semitones += getDragShift (note);
+                                       note.lastEditedSemitones = note.semitones;
+                                   },
+                                   "move notes");
+    }
+    else if (drag == Drag::rubberBand)
+    {
+        const auto area = juce::Rectangle<float> (dragOrigin, event.position);
 
-        case Drag::rubberBand:
+        if (area.getWidth() > 3.0f || area.getHeight() > 3.0f)
         {
-            const auto area = juce::Rectangle<float> (dragOrigin, event.position);
+            juce::SparseSet<int> chosen;
+            const auto& notes = document->getNotes();
 
-            if (area.getWidth() > 3.0f || area.getHeight() > 3.0f)
-            {
-                juce::SparseSet<int> chosen;
-                const auto& notes = document.getNotes();
+            for (int index = 0; index < static_cast<int> (notes.size()); ++index)
+                if (area.intersects (getNoteBounds (notes[static_cast<std::size_t> (index)])))
+                    chosen.addRange ({ index, index + 1 });
 
-                for (int index = 0; index < static_cast<int> (notes.size()); ++index)
-                    if (area.intersects (getNoteBounds (notes[static_cast<std::size_t> (index)])))
-                        chosen.addRange ({ index, index + 1 });
-
-                document.setSelection (std::move (chosen));
-            }
-
-            break;
+            document->setSelection (std::move (chosen));
         }
-
-        case Drag::drawPitch:
-            document.drawPitch (drawFirstFrame, drawnSpan);
-            drawnSpan.clear();
-            break;
-
-        case Drag::loopRange:
-        case Drag::none:
-            break;
     }
 
     drag = Drag::none;
-    dragSemitones = 0;
+    dragDelta = 0.0f;
     dragNoteIndex = -1;
     repaint();
 }
 
-void NoteGrid::mouseDoubleClick (const juce::MouseEvent& event)
-{
-    const auto noteIndex = getNoteIndexAt (event.position);
-
-    if (noteIndex < 0)
-        return;
-
-    const auto& scale = document.getScale();
-
-    document.modifyNotes ({ noteIndex },
-                          [&scale] (Note& note)
-                          {
-                              note.targetNote = scale.snap (note.sungPitch);
-                              note.isEnabled = true;
-                              note.correction = 1.0f;
-                          },
-                          "retune the note");
-}
-
-void NoteGrid::showMenuFor (int noteIndex)
-{
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&getLookAndFeel());
-
-    const auto indices = getSelectedIndices();
-    const auto hasNotes = ! indices.empty();
-
-    menu.addItem (1, "Retune to the scale", hasNotes);
-    menu.addItem (2, "Leave as sung", hasNotes);
-    menu.addItem (3, "Correct fully", hasNotes);
-    menu.addSeparator();
-    menu.addItem (4, "Join", indices.size() > 1);
-    menu.addItem (5, "Forget these notes", hasNotes);
-    menu.addSeparator();
-    menu.addItem (6, "Clear what was drawn");
-    menu.addItem (7, "Find the notes again");
-
-    juce::ignoreUnused (noteIndex);
-
-    menu.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (this),
-                        [this, indices] (int result)
-                        {
-                            const auto& scale = document.getScale();
-
-                            switch (result)
-                            {
-                                case 1:
-                                    document.modifyNotes (indices,
-                                                          [&scale] (Note& note) { note.targetNote = scale.snap (note.sungPitch); },
-                                                          "retune to the scale");
-                                    break;
-                                case 2:
-                                    document.modifyNotes (indices, [] (Note& note) { note.isEnabled = false; },
-                                                          "leave as sung");
-                                    break;
-                                case 3:
-                                    document.modifyNotes (indices,
-                                                          [] (Note& note) { note.isEnabled = true; note.correction = 1.0f; },
-                                                          "correct fully");
-                                    break;
-                                case 4: document.mergeNotes (indices); break;
-                                case 5: document.removeNotes (indices); break;
-                                case 6: document.clearDrawnPitch(); break;
-                                case 7: document.resetNotes(); break;
-                                default: break;
-                            }
-                        });
-}
-
 bool NoteGrid::keyPressed (const juce::KeyPress& key)
 {
-    const auto indices = getSelectedIndices();
-
-    if (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey)
-    {
-        document.nudgeNotes (indices, key == juce::KeyPress::upKey ? 1 : -1);
-        return true;
-    }
-
     if (key.getTextCharacter() == 'a' && key.getModifiers().isCommandDown())
     {
-        document.selectAll();
-        return true;
-    }
-
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
-    {
-        document.removeNotes (indices);
+        document->selectAll();
         return true;
     }
 

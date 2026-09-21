@@ -5,7 +5,7 @@
 #include <cstring>
 #include <vector>
 
-namespace tuner::test
+namespace multiplyandreplenish::test
 {
 /** @brief A row-major float32 matrix, read from the fixtures the reference implementation wrote.
 
