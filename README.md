@@ -1,6 +1,6 @@
 # Multiply and Replenish
 
-![Screenshot](screenshot.png)
+![Screenshot](screenshot.jpeg)
 
 A neural vocal pitch editor that lets you create multiple instances of a vocal take and manipulate each differently to create realistic harmonies. Multiply and Replenish supports ARA.
 
