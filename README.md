@@ -2,11 +2,7 @@
 
 ![Screenshot](screenshot.png)
 
-A vocal pitch editor: open a take, see the melody as notes on a piano roll, move them, and hear the
-take sung back at the pitches you put them on. Each tab is another edit of the same take, and they
-all play together, which is how a harmony is made. A VST3 plug-in and a standalone app, built from
-the same processor: the standalone opens audio files and saves projects, and the plug-in takes its
-audio from the host through ARA.
+A neural vocal pitch editor that lets you create multiple instances of a vocal take and manipulate each differently to create realistic harmonies. Multiply and Replenish supports ARA.
 
 ## Build from Source
 
@@ -14,7 +10,7 @@ audio from the host through ARA.
 ```bash
 git clone https://github.com/vivekvjyn/MultiplyAndReplenish.git
 cd MultiplyAndReplenish
-git submodule update --init --recursive --depth 1 libs/JUCE libs/googletest libs/ARA_SDK
+git submodule update --recursive
 ```
 2. **Build the plugin:**
 ```bash
