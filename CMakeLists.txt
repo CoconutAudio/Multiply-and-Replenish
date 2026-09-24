@@ -51,10 +51,15 @@ function(mr_warnings)
 endfunction()
 
 function(mr_strict_warnings)
-    if(NOT MSVC)
-        set_property(SOURCE ${ARGN} APPEND PROPERTY COMPILE_OPTIONS
-            -Wdouble-promotion -Wfloat-conversion -Wconversion -Wsign-conversion
-            -Wold-style-cast -Wuseless-cast -Wcast-qual -Wextra-semi)
+    if(MSVC)
+        return()
+    endif()
+    set_property(SOURCE ${ARGN} APPEND PROPERTY COMPILE_OPTIONS
+        -Wdouble-promotion -Wfloat-conversion -Wconversion -Wsign-conversion
+        -Wold-style-cast -Wcast-qual -Wextra-semi)
+    # -Wuseless-cast is a GCC extension; Clang rejects it as an unknown flag.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set_property(SOURCE ${ARGN} APPEND PROPERTY COMPILE_OPTIONS -Wuseless-cast)
     endif()
 endfunction()
 
